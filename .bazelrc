@@ -1,0 +1,72 @@
+###############################################################################
+## Bazel Configuration Flags
+##
+## `.bazelrc` is a Bazel configuration file.
+## https://bazel.build/docs/best-practices#bazelrc-file
+###############################################################################
+
+# https://bazel.build/reference/command-line-reference#flag--enable_platform_specific_config
+common --enable_platform_specific_config
+
+# Enable the only currently supported report type
+# https://bazel.build/reference/command-line-reference#flag--combined_report
+coverage --combined_report=lcov
+
+# Avoid fully cached builds reporting no coverage and failing CI
+# https://bazel.build/reference/command-line-reference#flag--experimental_fetch_all_coverage_outputs
+coverage --experimental_fetch_all_coverage_outputs
+
+# https://github.com/bazelbuild/bazel/issues/8195
+build --incompatible_disallow_empty_glob=true
+
+# https://github.com/bazelbuild/bazel/issues/12821
+build --nolegacy_external_runfiles
+
+# Disable legacy __init__.py behavior which is known to conflict with
+# modern python versions (3.9+)
+build --incompatible_default_to_explicit_init_py
+
+# https://github.com/bazelbuild/bazel/issues/23043.
+build --incompatible_autoload_externally=
+
+# Disable networking in sandboxes to encourage hermetic builds
+build --sandbox_default_allow_network=false
+
+###############################################################################
+## Configuration Flags
+###############################################################################
+
+# Enable black for all targets in the workspace
+build:black --aspects=@rules_venv//python/black:defs.bzl%py_black_aspect
+build:black --output_groups=+py_black_checks
+
+# Enable isort for all targets in the workspace
+build:isort --aspects=@rules_venv//python/isort:defs.bzl%py_isort_aspect
+build:isort --output_groups=+py_isort_checks
+build --@rules_venv//python/isort:config=//:.isort.cfg
+
+# Enable mypy for all targets in the workspace
+build:mypy --aspects=@rules_venv//python/mypy:defs.bzl%py_mypy_aspect
+build:mypy --output_groups=+py_mypy_checks
+build --@rules_venv//python/mypy:config=//:.mypy.ini
+
+# Enable pylint for all targets in the workspace
+build:pylint --aspects=@rules_venv//python/pylint:defs.bzl%py_pylint_aspect
+build:pylint --output_groups=+py_pylint_checks
+build --@rules_venv//python/pylint:config=//:.pylintrc.toml
+
+# Define a config that enables all linter aspects.
+build:strict --config=black
+build:strict --config=isort
+build:strict --config=pylint
+build:strict --config=mypy
+
+###############################################################################
+## Custom user flags
+##
+## This should always be the last thing in the `.bazelrc` file to ensure
+## consistent behavior when setting flags in that file as `.bazelrc` files are
+## evaluated top to bottom.
+###############################################################################
+
+try-import %workspace%/user.bazelrc

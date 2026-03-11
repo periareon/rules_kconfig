@@ -1,0 +1,54 @@
+# Kconfig flags are Bazel build settings that can be set on the command line
+# or in .bazelrc. This example's .bazelrc sets:
+#
+#   build --@simple_kconfig//:CONFIG_FOO=true
+#
+# config_setting targets let you use select() to conditionally change build
+# behavior based on the current value of a kconfig flag. Below we define one
+# config_setting per flag to match its expected value, then use select() to
+# pass defines into the test — proving the flag values propagate correctly
+# without ever including the generated config.h.
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+# bool flag — set to true via .bazelrc
+config_setting(
+    name = "foo_enabled",
+    flag_values = {"@simple_kconfig//:CONFIG_FOO": "true"},
+)
+
+# int flag — Kconfig default is 3
+config_setting(
+    name = "count_is_3",
+    flag_values = {"@simple_kconfig//:CONFIG_COUNT": "3"},
+)
+
+# string flag — Kconfig default is "hello"
+config_setting(
+    name = "label_is_hello",
+    flag_values = {"@simple_kconfig//:CONFIG_LABEL": "hello"},
+)
+
+cc_test(
+    name = "test_config_settings",
+    srcs = ["test_config_settings.c"],
+    local_defines =
+        select({
+            ":foo_enabled": ["FOO_MATCHED"],
+            "//conditions:default": [],
+        }) +
+        select({
+            ":count_is_3": ["COUNT_MATCHED"],
+            "//conditions:default": [],
+        }) +
+        select({
+            ":label_is_hello": ["LABEL_MATCHED"],
+            "//conditions:default": [],
+        }),
+)
+
+cc_test(
+    name = "test_autoconf",
+    srcs = ["test_autoconf.c"],
+    deps = ["@simple_kconfig//:config"],
+)

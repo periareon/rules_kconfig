@@ -1,0 +1,31 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_venv//python:py_binary.bzl", "py_binary")
+load("@rules_venv//python/pytest:defs.bzl", "py_pytest_test")
+
+exports_files([
+    "repository_gen.py",
+])
+
+py_binary(
+    name = "repository_gen",
+    srcs = ["repository_gen.py"],
+    deps = ["@pip_deps//kconfiglib"],
+)
+
+py_pytest_test(
+    name = "repository_gen_test",
+    srcs = ["repository_gen_test.py"],
+    deps = [":repository_gen"],
+)
+
+bzl_library(
+    name = "bazel_tools_bzl_lib",
+    srcs = ["@bazel_tools//tools:bzl_srcs"],
+)
+
+bzl_library(
+    name = "bzl_lib",
+    srcs = glob(["*.bzl"]),
+    visibility = ["//kconfig:__pkg__"],
+    deps = [":bazel_tools_bzl_lib"],
+)

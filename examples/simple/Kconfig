@@ -1,0 +1,22 @@
+# Minimal Kconfig for rules_kconfig examples.
+# See https://www.kernel.org/doc/html/latest/kbuild/kconfig-language.html
+
+mainmenu "Simple example Kconfig"
+
+config FOO
+	bool "Enable FOO"
+	default n
+	help
+	  Example boolean option.
+
+config COUNT
+	int "Count"
+	default 3
+	help
+	  Example integer option.
+
+config LABEL
+	string "Label"
+	default "hello"
+	help
+	  Example string option.
