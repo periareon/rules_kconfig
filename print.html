@@ -180,7 +180,7 @@ use_repo(python, "python_3_12_host")
 <pre><code class="language-python">kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "my_kconfig",
-    config = "//:Kconfig",
+    kconfig = "//:Kconfig",
     interpreter = "@python_3_12_host//:python",
 )
 use_repo(kconfig, "my_kconfig")
@@ -238,6 +238,58 @@ cc_library(
     }),
 )
 </code></pre>
+<h2 id="providing-defaults-via-config"><a class="header" href="#providing-defaults-via-config">Providing defaults via <code>.config</code></a></h2>
+<p>You can supply a <code>.config</code> file to override Kconfig defaults. Pass the
+<code>defaults</code> attribute when declaring the repository:</p>
+<pre><code class="language-python">kconfig.repo(
+    name = "my_kconfig",
+    kconfig = "//:Kconfig",
+    defaults = "//:.config",
+    interpreter = "@python_3_12_host//:python",
+)
+</code></pre>
+<p>If any Kconfig symbol uses <code>$(shell,...)</code> for its default and is not
+explicitly set in the <code>.config</code> file, the repository rule will fail with
+an actionable error message.</p>
+<h2 id="interactive-configuration-with-menuconfig"><a class="header" href="#interactive-configuration-with-menuconfig">Interactive configuration with <code>menuconfig</code></a></h2>
+<p>The <code>menuconfig</code> rule launches kconfiglib's terminal UI for interactive
+Kconfig editing. Add a target to your <code>BUILD.bazel</code>:</p>
+<pre><code class="language-python">load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+
+menuconfig(
+    name = "menuconfig",
+    kconfig = "//:Kconfig",
+)
+</code></pre>
+<p>Then run:</p>
+<pre><code>bazel run //:menuconfig
+</code></pre>
+<p>The TUI reads and writes the <code>.config</code> file in your workspace root.</p>
+<h2 id="overriding-configuration-on-external-repositories"><a class="header" href="#overriding-configuration-on-external-repositories">Overriding configuration on external repositories</a></h2>
+<p>When a kconfig repository is declared by an external dependency, use
+<code>kconfig.overrides</code> to overlay your own <code>.config</code> without modifying the
+external module. If the source repository was itself created with a
+<code>.config</code>, the overrides are stacked on top of those base values:</p>
+<pre><code class="language-python">kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
+kconfig.overrides(
+    name = "my_board_config",
+    kconfig = "@ext_kconfig//:ext_kconfig",
+    config = "//:.config",
+    interpreter = "@python_3_12_host//:python",
+)
+use_repo(kconfig, "my_board_config")
+</code></pre>
+<p>Then wrap targets that depend on kconfig flags with the generated
+transition rule:</p>
+<pre><code class="language-python">load("@my_board_config//:defs.bzl", "with_kconfig_overrides")
+
+with_kconfig_overrides(
+    name = "ext_config_customized",
+    actual = "@ext_kconfig//:config",
+)
+</code></pre>
+<p>Values explicitly set on the command line take precedence over the
+overlay.</p>
 <div style="break-before: page; page-break-before: always;"></div><!-- Generated with Stardoc: http://skydoc.bazel.build -->
 <h1 id="rules_kconfig-1"><a class="header" href="#rules_kconfig-1">rules_kconfig</a></h1>
 <p>Bazel rules for parsing <a href="https://www.kernel.org/doc/html/latest/kbuild/kconfig-language.html">Kconfig</a>
@@ -253,39 +305,117 @@ the active flag values.</li>
 <pre><code class="language-python">kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "my_kconfig",
-    config = "//:Kconfig",
+    kconfig = "//:Kconfig",
     interpreter = "@python_3_12_host//:python",
 )
 use_repo(kconfig, "my_kconfig")
 </code></pre>
+<p>Use <code>kconfig.overrides</code> to overlay a <code>.config</code> file onto an external kconfig
+repository via a Starlark transition:</p>
+<pre><code class="language-python">kconfig.overrides(
+    name = "my_board_config",
+    kconfig = "@ext_kconfig//:ext_kconfig",
+    config = "//:.config",
+    interpreter = "@python_3_12_host//:python",
+)
+use_repo(kconfig, "my_board_config")
+</code></pre>
 <p>See the <a href="./index.html">Introduction</a> for full setup and usage instructions.</p>
+<h2 id="rules"><a class="header" href="#rules">Rules</a></h2>
+<ul>
+<li><a href="rules.html#kconfig_toolchain">kconfig_toolchain</a></li>
+<li><a href="rules.html#menuconfig">menuconfig</a></li>
+</ul>
 <h2 id="repository-rules"><a class="header" href="#repository-rules">Repository Rules</a></h2>
 <ul>
+<li><a href="rules.html#kconfig_overrides_repository">kconfig_overrides_repository</a></li>
 <li><a href="rules.html#kconfig_repository">kconfig_repository</a></li>
 </ul>
 <h2 id="module-extensions"><a class="header" href="#module-extensions">Module Extensions</a></h2>
 <ul>
 <li><a href="rules.html#kconfig">kconfig</a></li>
 </ul>
+<p><a id="kconfig_toolchain"></a></p>
+<h2 id="kconfig_toolchain"><a class="header" href="#kconfig_toolchain">kconfig_toolchain</a></h2>
+<pre>
+load("@rules_kconfig//kconfig:defs.bzl", "kconfig_toolchain")
+
+kconfig_toolchain(<a href="rules.html#kconfig_toolchain-name">name</a>, <a href="rules.html#kconfig_toolchain-kconfiglib">kconfiglib</a>)
+</pre>
+<p>Declares a kconfig toolchain backed by kconfiglib.</p>
+<p><strong>ATTRIBUTES</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="kconfig_toolchain-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_toolchain-kconfiglib"></a>kconfiglib</td><td style="text-align: left">A py_library providing kconfiglib.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+</tbody></table>
+</div>
+<p><a id="menuconfig"></a></p>
+<h2 id="menuconfig"><a class="header" href="#menuconfig">menuconfig</a></h2>
+<pre>
+load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+
+menuconfig(<a href="rules.html#menuconfig-name">name</a>, <a href="rules.html#menuconfig-defaults">defaults</a>, <a href="rules.html#menuconfig-kconfig">kconfig</a>)
+</pre>
+<p>Launch kconfiglib's menuconfig TUI for interactive Kconfig editing.</p>
+<p>Run with <code>bazel run</code> to interactively create or edit a <code>.config</code> file
+against a Kconfig tree. The TUI writes the resulting configuration to
+the path specified by <code>defaults</code> (relative to the workspace root).</p>
+<p><strong>ATTRIBUTES</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="menuconfig-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-defaults"></a>defaults</td><td style="text-align: left">Workspace-relative path to the <code>.config</code> file to read/write.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>".config"</code></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+</tbody></table>
+</div>
+<p><a id="kconfig_overrides_repository"></a></p>
+<h2 id="kconfig_overrides_repository"><a class="header" href="#kconfig_overrides_repository">kconfig_overrides_repository</a></h2>
+<pre>
+load("@rules_kconfig//kconfig:defs.bzl", "kconfig_overrides_repository")
+
+kconfig_overrides_repository(<a href="rules.html#kconfig_overrides_repository-name">name</a>, <a href="rules.html#kconfig_overrides_repository-config">config</a>, <a href="rules.html#kconfig_overrides_repository-interpreter">interpreter</a>, <a href="rules.html#kconfig_overrides_repository-kconfig">kconfig</a>, <a href="rules.html#kconfig_overrides_repository-kconfiglib_anchor">kconfiglib_anchor</a>)
+</pre>
+<p>Overlay .config values onto an existing kconfig repository.</p>
+<p>Reads the manifest from the source kconfig repository to locate the
+symlinked Kconfig source tree, then reparses with kconfiglib and a
+user-provided <code>.config</code> file. If the source repository was itself
+created with a <code>.config</code>, the overrides are stacked on top of those
+base values. Generates a <code>defs.bzl</code> containing a Starlark transition
+and wrapper rule (<code>with_kconfig_overrides</code>) that applies the overrides.</p>
+<p>Values explicitly set on the command line take precedence over the overlay.</p>
+<p><strong>ATTRIBUTES</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="kconfig_overrides_repository-name"></a>name</td><td style="text-align: left">A unique name for this repository.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_overrides_repository-config"></a>config</td><td style="text-align: left">.config file with override values.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_overrides_repository-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the generator.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_overrides_repository-kconfig"></a>kconfig</td><td style="text-align: left">Label to the kconfig manifest from the source kconfig repository (e.g. <code>@my_kconfig//:my_kconfig</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_overrides_repository-kconfiglib_anchor"></a>kconfiglib_anchor</td><td style="text-align: left">Label used to locate the <code>kconfiglib</code> package. Managed by the module extension.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+</tbody></table>
+</div>
 <p><a id="kconfig_repository"></a></p>
 <h2 id="kconfig_repository"><a class="header" href="#kconfig_repository">kconfig_repository</a></h2>
 <pre>
 load("@rules_kconfig//kconfig:defs.bzl", "kconfig_repository")
 
-kconfig_repository(<a href="rules.html#kconfig_repository-name">name</a>, <a href="rules.html#kconfig_repository-config">config</a>, <a href="rules.html#kconfig_repository-interpreter">interpreter</a>, <a href="rules.html#kconfig_repository-kconfiglib_anchor">kconfiglib_anchor</a>)
+kconfig_repository(<a href="rules.html#kconfig_repository-name">name</a>, <a href="rules.html#kconfig_repository-apparent_name">apparent_name</a>, <a href="rules.html#kconfig_repository-defaults">defaults</a>, <a href="rules.html#kconfig_repository-interpreter">interpreter</a>, <a href="rules.html#kconfig_repository-kconfig">kconfig</a>, <a href="rules.html#kconfig_repository-kconfiglib_anchor">kconfiglib_anchor</a>)
 </pre>
 <p>Parse a Kconfig file tree and generate a Bazel repository with build settings.</p>
 <p>The generated repository contains a <code>bool_flag</code>, <code>int_flag</code>, or <code>string_flag</code>
 for every <code>config</code> symbol found in the Kconfig tree, plus a <code>cc_library</code>
 target (<code>:config</code>) providing a <code>config.h</code> header that reflects the active
 flag values.</p>
+<p>The Kconfig source tree is symlinked into <code>kconfig_srcs/</code> and a
+<code>kconfig.manifest.json</code> records the root file and all visited files.
+A repo-named symlink (e.g. <code>@my_kconfig//:my_kconfig</code>) points to
+the manifest for downstream consumers.</p>
 <p>Prefer using the <code>kconfig</code> module extension rather than calling this rule
 directly.</p>
 <p><strong>ATTRIBUTES</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="kconfig_repository-name"></a>name</td><td style="text-align: left">A unique name for this repository.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="kconfig_repository-config"></a>config</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-apparent_name"></a>apparent_name</td><td style="text-align: left">The user-facing repository name (used for the repo-named symlink). Defaults to the canonical name.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>""</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-defaults"></a>defaults</td><td style="text-align: left">Optional .config file with explicit symbol values that override Kconfig defaults.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfiglib_anchor"></a>kconfiglib_anchor</td><td style="text-align: left">Label used to locate the <code>kconfiglib</code> package. Managed by the module extension.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 </tbody></table>
 </div>
@@ -293,18 +423,31 @@ directly.</p>
 <h2 id="kconfig"><a class="header" href="#kconfig">kconfig</a></h2>
 <pre>
 kconfig = use_extension("@rules_kconfig//kconfig:defs.bzl", "kconfig")
-kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.html#kconfig.repo-config">config</a>, <a href="rules.html#kconfig.repo-interpreter">interpreter</a>)
+kconfig.overrides(<a href="rules.html#kconfig.overrides-name">name</a>, <a href="rules.html#kconfig.overrides-config">config</a>, <a href="rules.html#kconfig.overrides-interpreter">interpreter</a>, <a href="rules.html#kconfig.overrides-kconfig">kconfig</a>)
+kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.html#kconfig.repo-defaults">defaults</a>, <a href="rules.html#kconfig.repo-interpreter">interpreter</a>, <a href="rules.html#kconfig.repo-kconfig">kconfig</a>)
 </pre>
 <p>Configure kconfig repositories.</p>
 <p><strong>TAG CLASSES</strong></p>
+<p><a id="kconfig.overrides"></a></p>
+<h3 id="overrides"><a class="header" href="#overrides">overrides</a></h3>
+<p>Overlay .config overrides onto an existing kconfig repository.</p>
+<p><strong>Attributes</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="kconfig.overrides-name"></a>name</td><td style="text-align: left">The name of the generated overrides repository.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.overrides-config"></a>config</td><td style="text-align: left">.config file with override values.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.overrides-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target (e.g. <code>@python_3_12_host//:python</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.overrides-kconfig"></a>kconfig</td><td style="text-align: left">Label to the kconfig manifest from the source repository (e.g. <code>@ext_kconfig//:ext_kconfig</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+</tbody></table>
+</div>
 <p><a id="kconfig.repo"></a></p>
 <h3 id="repo"><a class="header" href="#repo">repo</a></h3>
 <p>Declare a kconfig repository to be generated from a Kconfig file tree.</p>
 <p><strong>Attributes</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="kconfig.repo-name"></a>name</td><td style="text-align: left">The name of the generated repository. Symbols are accessible as <code>@&lt;name&gt;//:CONFIG_&lt;symbol&gt;</code>.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="kconfig.repo-config"></a>config</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-defaults"></a>defaults</td><td style="text-align: left">Optional .config file providing default overrides for Kconfig symbols.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser (e.g. <code>@python_3_12_host//:python</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 </tbody></table>
 </div>
                     </main>
