@@ -1,0 +1,14 @@
+load("//kconfig:kconfig_toolchain.bzl", "kconfig_toolchain")
+
+kconfig_toolchain(
+    name = "kconfig_toolchain",
+    kconfiglib = "@kconfiglib",
+    visibility = ["//visibility:public"],
+)
+
+toolchain(
+    name = "toolchain",
+    toolchain = ":kconfig_toolchain",
+    toolchain_type = "//kconfig:toolchain_type",
+    visibility = ["//visibility:public"],
+)

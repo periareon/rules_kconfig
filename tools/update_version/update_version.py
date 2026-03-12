@@ -5,11 +5,10 @@ import base64
 import binascii
 import logging
 import os
+import platform
 import re
 import sys
 from pathlib import Path
-
-import platform
 
 KCONFIGLIB_PACKAGE = "kconfiglib"
 VERSION_REGEX = re.compile(r"^kconfiglib==(\d+\.\d+(?:\.\d+)?)\s*(?:\\)?\s*$")
@@ -66,6 +65,7 @@ def _default_requirements_path(root: Path) -> Path:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     root = _workspace_root()
     parser.add_argument(
@@ -98,7 +98,7 @@ def integrity(hex_str: str) -> str:
     return f"sha256-{encoded}"
 
 
-def parse_kconfiglib_from_requirements(content: str) -> dict:
+def parse_kconfiglib_from_requirements(content: str) -> dict[str, object]:
     """Extract version, hash, and url for kconfiglib from requirements file content."""
     lines = content.splitlines()
     version = None
@@ -134,7 +134,7 @@ def parse_kconfiglib_from_requirements(content: str) -> dict:
         i += 1
     if version is None:
         return {}
-    result = {"version": version, "integrity": "", "urls": []}
+    result: dict[str, object] = {"version": version, "integrity": "", "urls": []}
     if hash_hex:
         result["integrity"] = integrity(hash_hex)
     if url:
@@ -143,6 +143,7 @@ def parse_kconfiglib_from_requirements(content: str) -> dict:
 
 
 def main() -> None:
+    """Update kconfiglib_version.bzl from the pinned requirements file."""
     args = parse_args()
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)

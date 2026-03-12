@@ -34,7 +34,7 @@ Then register a kconfig repository via the module extension:
 kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "my_kconfig",
-    config = "//:Kconfig",
+    kconfig = "//:Kconfig",
     interpreter = "@python_3_12_host//:python",
 )
 use_repo(kconfig, "my_kconfig")
@@ -112,3 +112,76 @@ cc_library(
     }),
 )
 ```
+
+## Providing defaults via `.config`
+
+You can supply a `.config` file to override Kconfig defaults. Pass the
+`defaults` attribute when declaring the repository:
+
+```python
+kconfig.repo(
+    name = "my_kconfig",
+    kconfig = "//:Kconfig",
+    defaults = "//:.config",
+    interpreter = "@python_3_12_host//:python",
+)
+```
+
+If any Kconfig symbol uses `$(shell,...)` for its default and is not
+explicitly set in the `.config` file, the repository rule will fail with
+an actionable error message.
+
+## Interactive configuration with `menuconfig`
+
+The `menuconfig` rule launches kconfiglib's terminal UI for interactive
+Kconfig editing. Add a target to your `BUILD.bazel`:
+
+```python
+load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+
+menuconfig(
+    name = "menuconfig",
+    kconfig = "//:Kconfig",
+)
+```
+
+Then run:
+
+```
+bazel run //:menuconfig
+```
+
+The TUI reads and writes the `.config` file in your workspace root.
+
+## Overriding configuration on external repositories
+
+When a kconfig repository is declared by an external dependency, use
+`kconfig.overrides` to overlay your own `.config` without modifying the
+external module. If the source repository was itself created with a
+`.config`, the overrides are stacked on top of those base values:
+
+```python
+kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
+kconfig.overrides(
+    name = "my_board_config",
+    kconfig = "@ext_kconfig//:ext_kconfig",
+    config = "//:.config",
+    interpreter = "@python_3_12_host//:python",
+)
+use_repo(kconfig, "my_board_config")
+```
+
+Then wrap targets that depend on kconfig flags with the generated
+transition rule:
+
+```python
+load("@my_board_config//:defs.bzl", "with_kconfig_overrides")
+
+with_kconfig_overrides(
+    name = "ext_config_customized",
+    actual = "@ext_kconfig//:config",
+)
+```
+
+Values explicitly set on the command line take precedence over the
+overlay.

@@ -16,10 +16,23 @@ tag parses a Kconfig file tree and generates a repository containing:
 kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "my_kconfig",
-    config = "//:Kconfig",
+    kconfig = "//:Kconfig",
     interpreter = "@python_3_12_host//:python",
 )
 use_repo(kconfig, "my_kconfig")
+```
+
+Use `kconfig.overrides` to overlay a `.config` file onto an external kconfig
+repository via a Starlark transition:
+
+```python
+kconfig.overrides(
+    name = "my_board_config",
+    kconfig = "@ext_kconfig//:ext_kconfig",
+    config = "//:.config",
+    interpreter = "@python_3_12_host//:python",
+)
+use_repo(kconfig, "my_board_config")
 ```
 
 See the [Introduction](./index.md) for full setup and usage instructions.
@@ -30,9 +43,24 @@ load(
     _kconfig = "kconfig",
 )
 load(
+    ":kconfig_overrides_repository.bzl",
+    _kconfig_overrides_repository = "kconfig_overrides_repository",
+)
+load(
     ":kconfig_repository.bzl",
     _kconfig_repository = "kconfig_repository",
 )
+load(
+    ":kconfig_toolchain.bzl",
+    _kconfig_toolchain = "kconfig_toolchain",
+)
+load(
+    ":menuconfig.bzl",
+    _menuconfig = "menuconfig",
+)
 
 kconfig = _kconfig
+kconfig_overrides_repository = _kconfig_overrides_repository
 kconfig_repository = _kconfig_repository
+kconfig_toolchain = _kconfig_toolchain
+menuconfig = _menuconfig

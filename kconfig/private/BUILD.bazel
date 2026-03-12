@@ -1,21 +1,45 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_venv//python:py_binary.bzl", "py_binary")
+load("@rules_venv//python:py_library.bzl", "py_library")
 load("@rules_venv//python/pytest:defs.bzl", "py_pytest_test")
+load(":kconfig_toolchain_alias.bzl", "kconfig_toolchain_alias")
 
 exports_files([
+    "overrides_gen.py",
+    "kconfig_parser.py",
     "repository_gen.py",
 ])
+
+kconfig_toolchain_alias(
+    name = "current_kconfig_toolchain",
+)
+
+py_library(
+    name = "kconfig_parser",
+    srcs = ["kconfig_parser.py"],
+    deps = [":current_kconfig_toolchain"],
+)
 
 py_binary(
     name = "repository_gen",
     srcs = ["repository_gen.py"],
-    deps = ["@pip_deps//kconfiglib"],
+    deps = [":kconfig_parser"],
 )
 
 py_pytest_test(
-    name = "repository_gen_test",
-    srcs = ["repository_gen_test.py"],
-    deps = [":repository_gen"],
+    name = "kconfig_parser_test",
+    srcs = ["kconfig_parser_test.py"],
+    deps = [":kconfig_parser"],
+)
+
+py_binary(
+    name = "menuconfig_runner",
+    srcs = ["menuconfig_runner.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":current_kconfig_toolchain",
+        "@rules_venv//python/runfiles",
+    ],
 )
 
 bzl_library(
@@ -27,5 +51,8 @@ bzl_library(
     name = "bzl_lib",
     srcs = glob(["*.bzl"]),
     visibility = ["//kconfig:__pkg__"],
-    deps = [":bazel_tools_bzl_lib"],
+    deps = [
+        ":bazel_tools_bzl_lib",
+        "@rules_venv//python:bzl_lib",
+    ],
 )

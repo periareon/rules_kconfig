@@ -10,6 +10,12 @@
 # without ever including the generated config.h.
 
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+
+menuconfig(
+    name = "menuconfig",
+    kconfig = "//:Kconfig",
+)
 
 # bool flag — set to true via .bazelrc
 config_setting(

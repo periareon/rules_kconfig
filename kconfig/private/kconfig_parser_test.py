@@ -1,15 +1,14 @@
-"""Tests for repository_gen."""
+"""Tests for kconfig_parser."""
 
-import os
 import textwrap
 from pathlib import Path
 
-import kconfiglib
 import pytest
 
-from kconfig.private.repository_gen import (
+from kconfig.private.kconfig_parser import (
     KconfigSetting,
     collect_settings,
+    parse_kconfig,
     read_source_files,
 )
 
@@ -19,24 +18,16 @@ def _parse(tmp_path: Path, kconfig_text: str) -> list[KconfigSetting]:
     kconfig_file = tmp_path / "Kconfig"
     kconfig_file.write_text(textwrap.dedent(kconfig_text))
 
-    prev_dir = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        os.environ["srctree"] = str(tmp_path)
-        kconf = kconfiglib.Kconfig(
-            filename=str(kconfig_file),
-            warn=False,
-            warn_to_stderr=False,
-        )
-    finally:
-        os.chdir(prev_dir)
-
+    kconf = parse_kconfig(kconfig_file, tmp_path)
     source_cache = read_source_files(kconf, tmp_path)
     return collect_settings(kconf, source_cache)
 
 
 class TestBoolType:
+    """Parse bool-typed Kconfig symbols."""
+
     def test_default_y(self, tmp_path: Path) -> None:
+        """A bool with ``default y`` produces ``True``."""
         settings = _parse(
             tmp_path,
             """\
@@ -53,6 +44,7 @@ class TestBoolType:
         assert s.default is True
 
     def test_default_n(self, tmp_path: Path) -> None:
+        """A bool with ``default n`` produces ``False``."""
         settings = _parse(
             tmp_path,
             """\
@@ -70,7 +62,10 @@ class TestBoolType:
 
 
 class TestIntType:
+    """Parse int-typed Kconfig symbols."""
+
     def test_default(self, tmp_path: Path) -> None:
+        """An int with an explicit default preserves the value."""
         settings = _parse(
             tmp_path,
             """\
@@ -87,6 +82,7 @@ class TestIntType:
         assert s.default == 42
 
     def test_zero_default(self, tmp_path: Path) -> None:
+        """An int with ``default 0`` is preserved as ``0``."""
         settings = _parse(
             tmp_path,
             """\
@@ -100,7 +96,10 @@ class TestIntType:
 
 
 class TestStringType:
+    """Parse string-typed Kconfig symbols."""
+
     def test_default(self, tmp_path: Path) -> None:
+        """A string with an explicit default preserves the value."""
         settings = _parse(
             tmp_path,
             """\
@@ -117,6 +116,7 @@ class TestStringType:
         assert s.default == "hello"
 
     def test_empty_default(self, tmp_path: Path) -> None:
+        """A string with ``default ""`` is preserved as ``""``."""
         settings = _parse(
             tmp_path,
             """\
@@ -129,8 +129,11 @@ class TestStringType:
         assert settings[0].default == ""
 
 
-class TestHexType:
+class TestHexType:  # pylint: disable=too-few-public-methods
+    """Parse hex-typed Kconfig symbols."""
+
     def test_maps_to_string_flag(self, tmp_path: Path) -> None:
+        """Hex symbols are represented as string_flag."""
         settings = _parse(
             tmp_path,
             """\
@@ -147,8 +150,11 @@ class TestHexType:
         assert isinstance(s.default, str)
 
 
-class TestTristateType:
+class TestTristateType:  # pylint: disable=too-few-public-methods
+    """Parse tristate-typed Kconfig symbols."""
+
     def test_maps_to_string_flag(self, tmp_path: Path) -> None:
+        """Tristate symbols are represented as string_flag."""
         settings = _parse(
             tmp_path,
             """\
@@ -166,7 +172,10 @@ class TestTristateType:
 
 
 class TestNoExplicitDefault:
+    """Symbols with no ``default`` directive get the falsey value for their type."""
+
     def test_bool_defaults_to_false(self, tmp_path: Path) -> None:
+        """A bare bool defaults to ``False``."""
         settings = _parse(
             tmp_path,
             """\
@@ -179,6 +188,7 @@ class TestNoExplicitDefault:
         assert settings[0].default is False
 
     def test_int_defaults_to_zero(self, tmp_path: Path) -> None:
+        """A bare int defaults to ``0``."""
         settings = _parse(
             tmp_path,
             """\
@@ -191,6 +201,7 @@ class TestNoExplicitDefault:
         assert settings[0].default == 0
 
     def test_string_defaults_to_empty(self, tmp_path: Path) -> None:
+        """A bare string defaults to ``""``."""
         settings = _parse(
             tmp_path,
             """\
@@ -203,8 +214,56 @@ class TestNoExplicitDefault:
         assert settings[0].default == ""
 
 
+class TestShellTaintedDefaults:
+    """Verify that shell-tainted symbols must be explicitly set when a .config is provided."""
+
+    def test_error_when_shell_tainted_not_in_defaults(self, tmp_path: Path) -> None:
+        """A shell-tainted symbol missing from .config causes a hard error."""
+        kconfig_file = tmp_path / "Kconfig"
+        kconfig_file.write_text(textwrap.dedent("""\
+            config ARCH
+                string "Architecture"
+                default "$(shell,uname -m)"
+        """))
+
+        kconf = parse_kconfig(kconfig_file, tmp_path)
+        source_cache = read_source_files(kconf, tmp_path)
+
+        dotconfig = tmp_path / ".config"
+        dotconfig.write_text("")
+        kconf.load_config(str(dotconfig))
+
+        with pytest.raises(SystemExit):
+            collect_settings(kconf, source_cache, has_defaults=True)
+
+    def test_ok_when_shell_tainted_set_in_defaults(self, tmp_path: Path) -> None:
+        """A shell-tainted symbol explicitly set in .config is accepted."""
+        kconfig_file = tmp_path / "Kconfig"
+        kconfig_file.write_text(textwrap.dedent("""\
+            config ARCH
+                string "Architecture"
+                default "$(shell,uname -m)"
+        """))
+
+        kconf = parse_kconfig(kconfig_file, tmp_path)
+        source_cache = read_source_files(kconf, tmp_path)
+
+        dotconfig = tmp_path / ".config"
+        dotconfig.write_text('CONFIG_ARCH="x86_64"\n')
+        kconf.load_config(str(dotconfig))
+
+        settings = collect_settings(kconf, source_cache, has_defaults=True)
+
+        assert len(settings) == 1
+        assert settings[0].name == "ARCH"
+        assert settings[0].default == ""
+
+
 class TestShellTainted:
+    """Symbols with ``$(shell,...)`` defaults fall back to the falsey value."""
+
     def test_falls_back_to_falsey(self, tmp_path: Path) -> None:
+        """A string with a shell default gets ``""``."""
         settings = _parse(
             tmp_path,
             """\
@@ -220,6 +279,7 @@ class TestShellTainted:
         assert s.default == ""
 
     def test_mixed_shell_and_clean(self, tmp_path: Path) -> None:
+        """Only the shell-tainted symbol gets the fallback; clean ones are preserved."""
         settings = _parse(
             tmp_path,
             """\
@@ -240,6 +300,7 @@ class TestShellTainted:
         assert by_name["TAINTED"].default == ""
 
     def test_bool_shell_tainted(self, tmp_path: Path) -> None:
+        """A bool with a shell default falls back to ``False``."""
         settings = _parse(
             tmp_path,
             """\
@@ -253,8 +314,11 @@ class TestShellTainted:
         assert settings[0].default is False
 
 
-class TestEmptyKconfig:
+class TestEmptyKconfig:  # pylint: disable=too-few-public-methods
+    """An empty Kconfig (no config symbols) produces no settings."""
+
     def test_no_symbols(self, tmp_path: Path) -> None:
+        """A mainmenu-only Kconfig yields an empty list."""
         settings = _parse(
             tmp_path,
             """\
@@ -262,11 +326,14 @@ class TestEmptyKconfig:
         """,
         )
 
-        assert settings == []
+        assert not settings
 
 
-class TestSourceDirective:
+class TestSourceDirective:  # pylint: disable=too-few-public-methods
+    """Symbols are collected transitively across ``source`` directives."""
+
     def test_symbols_from_multiple_files(self, tmp_path: Path) -> None:
+        """Symbols from sourced files are included alongside root symbols."""
         sub = tmp_path / "sub"
         sub.mkdir()
         (sub / "Kconfig").write_text(textwrap.dedent("""\
