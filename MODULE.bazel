@@ -25,9 +25,16 @@ python = use_extension(
 python.toolchain(python_version = "3.12")
 use_repo(python, "python_3_12_host")
 
+kconfig = use_extension("//kconfig:extensions.bzl", "kconfig")
+use_repo(kconfig, "kconfiglib")
+
+register_toolchains(
+    "//kconfig/toolchain:toolchain",
+)
+
 requirements = use_extension("@rules_req_compile//extensions:python.bzl", "requirements", dev_dependency = True)
 requirements.parse(
-    name = "pip_deps",
+    name = "kconfig_pip_deps",
     requirements_locks = {
         "//tools/requirements:requirements_linux_aarch64.txt": "//tools/constraints:linux-aarch64",
         "//tools/requirements:requirements_linux_x86_64.txt": "//tools/constraints:linux-x86_64",
@@ -35,7 +42,7 @@ requirements.parse(
         "//tools/requirements:requirements_windows_x86_64.txt": "//tools/constraints:windows-x86_64",
     },
 )
-use_repo(requirements, "pip_deps")
+use_repo(requirements, "kconfig_pip_deps")
 
 register_toolchains(
     "//tools/toolchains:black_toolchain",

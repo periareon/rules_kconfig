@@ -2,4 +2,7 @@ exports_files([
     "MODULE.bazel",
     "LICENSE",
     "version.bzl",
+    ".isort.cfg",
+    ".mypy.ini",
+    ".pylintrc.toml",
 ])

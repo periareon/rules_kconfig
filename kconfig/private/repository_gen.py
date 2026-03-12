@@ -1,45 +1,16 @@
 """A script for parsing kconfig files and rendering the equivalent to a Bazel repository"""
 
 import argparse
-import dataclasses
+import json
 import logging
-import os
 from pathlib import Path, PurePosixPath
-from typing import Union
+from typing import Any
 
-import kconfiglib
-
-_TYPE_MAP = {
-    kconfiglib.BOOL: "bool_flag",
-    kconfiglib.TRISTATE: "string_flag",
-    kconfiglib.INT: "int_flag",
-    kconfiglib.HEX: "string_flag",
-    kconfiglib.STRING: "string_flag",
-}
-
-_FALSEY_PYTHON_DEFAULTS: dict[str, Union[bool, int, str]] = {
-    "bool_flag": False,
-    "int_flag": 0,
-    "string_flag": "",
-}
-
-_KCONFIG_BLOCK_STARTERS = frozenset(
-    {
-        "config",
-        "menuconfig",
-        "menu",
-        "endmenu",
-        "choice",
-        "endchoice",
-        "comment",
-        "source",
-        "rsource",
-        "osource",
-        "orsource",
-        "if",
-        "endif",
-        "mainmenu",
-    }
+from kconfig.private.kconfig_parser import (
+    KconfigSetting,
+    collect_settings,
+    parse_kconfig,
+    read_source_files,
 )
 
 _BUILD_HEADER_TEMPLATE = """\
@@ -92,26 +63,12 @@ _CONFIG_H_IN_TEMPLATE = """\
 log = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass(frozen=True)
-class KconfigSetting:
-    """A parsed Kconfig symbol mapped to its Bazel build setting representation."""
-
-    name: str
-    """Symbol name without the CONFIG_ prefix, e.g. ``"FOO"``."""
-
-    rule: str
-    """Bazel rule kind: ``"bool_flag"``, ``"int_flag"``, or ``"string_flag"``."""
-
-    default: Union[bool, int, str]
-    """Python-native default value for the build setting."""
-
-
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument(
-        "--config", type=Path, required=True, help="The path to the kconfig file."
+        "--kconfig", type=Path, required=True, help="The path to the root Kconfig file."
     )
     parser.add_argument(
         "--out_build",
@@ -123,7 +80,7 @@ def parse_args() -> argparse.Namespace:
         "--out_manifest",
         type=Path,
         required=True,
-        help="The output location of the `kconfig.manifest` file.",
+        help="The output location of the `kconfig.manifest.json` file.",
     )
     parser.add_argument(
         "--out_config_h_in",
@@ -132,97 +89,32 @@ def parse_args() -> argparse.Namespace:
         help="The output location of the `config.h.in` template file.",
     )
     parser.add_argument(
+        "--defaults",
+        type=Path,
+        default=None,
+        help="Optional .config file with explicit symbol values that override Kconfig defaults.",
+    )
+    parser.add_argument(
+        "--out_rendered_config",
+        type=Path,
+        default=None,
+        help="The output location of the rendered .config file.",
+    )
+    parser.add_argument(
+        "--repo_name",
+        type=str,
+        required=True,
+        help="Name of the generated repository (used for the repo-named symlink export).",
+    )
+    parser.add_argument(
         "--srctree",
         type=Path,
         default=None,
-        help="The root of the source tree. Defaults to the parent of --config.",
+        help="The root of the source tree. Defaults to the parent of --kconfig.",
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     return parser.parse_args()
-
-
-def read_source_files(kconf: kconfiglib.Kconfig, srctree: Path) -> dict[str, list[str]]:
-    """Read and cache all Kconfig source files, keyed by kconfiglib filename."""
-    cache: dict[str, list[str]] = {}
-    for filename in kconf.kconfig_filenames:
-        abs_path = Path(filename)
-        if not abs_path.is_absolute():
-            abs_path = srctree / filename
-        try:
-            cache[filename] = (
-                abs_path.resolve().read_text(encoding="utf-8").splitlines()
-            )
-        except OSError:
-            log.warning("Could not read Kconfig source: %s", abs_path)
-    return cache
-
-
-def _is_shell_tainted(
-    sym: kconfiglib.Symbol, source_cache: dict[str, list[str]]
-) -> bool:
-    """Check whether any definition of sym directly contains $(shell,...) macros."""
-    for node in sym.nodes:
-        lines = source_cache.get(node.filename)
-        if lines is None:
-            continue
-
-        start = node.linenr - 1
-        end = start + 1
-        while end < len(lines):
-            line = lines[end]
-            stripped = line.lstrip()
-            if not stripped or stripped.startswith("#"):
-                end += 1
-                continue
-            if line[0] not in (" ", "\t"):
-                first_word = stripped.split()[0]
-                if first_word in _KCONFIG_BLOCK_STARTERS:
-                    break
-            end += 1
-
-        if any("$(shell," in lines[i] for i in range(start, min(end, len(lines)))):
-            return True
-
-    return False
-
-
-def _python_default(sym: kconfiglib.Symbol, rule: str) -> Union[bool, int, str]:
-    """Convert a symbol's resolved Kconfig default to a Python-native value."""
-    if rule == "bool_flag":
-        return sym.str_value == "y"
-    if rule == "int_flag":
-        try:
-            return int(sym.str_value)
-        except ValueError:
-            return 0
-    return sym.str_value
-
-
-def collect_settings(
-    kconf: kconfiglib.Kconfig,
-    source_cache: dict[str, list[str]],
-) -> list[KconfigSetting]:
-    """Parse a Kconfig object into a list of :class:`KconfigSetting` entries.
-
-    Symbols whose definitions contain ``$(shell,...)`` macros receive the
-    falsey default for their type to avoid host-dependent values.
-    """
-    result: list[KconfigSetting] = []
-    for sym in kconf.unique_defined_syms:
-        rule = _TYPE_MAP.get(sym.orig_type)
-        if not rule:
-            log.debug("Skipping symbol %s (type %s)", sym.name, sym.orig_type)
-            continue
-
-        if _is_shell_tainted(sym, source_cache):
-            default = _FALSEY_PYTHON_DEFAULTS[rule]
-            log.info("CONFIG_%s uses $(shell,...); defaulting to %s", sym.name, default)
-        else:
-            default = _python_default(sym, rule)
-
-        result.append(KconfigSetting(name=sym.name, rule=rule, default=default))
-    return result
 
 
 def _starlark_default(setting: KconfigSetting) -> str:
@@ -236,7 +128,12 @@ def _starlark_default(setting: KconfigSetting) -> str:
     return f'"{escaped}"'
 
 
-def _render_build_file(settings: list[KconfigSetting]) -> str:
+def _render_build_file(
+    settings: list[KconfigSetting],
+    *,
+    repo_name: str,
+    has_rendered_config: bool = False,
+) -> str:
     """Render a BUILD.bazel file with build settings for each Kconfig symbol."""
     if not settings:
         return "# No Kconfig symbols found.\n"
@@ -247,6 +144,13 @@ def _render_build_file(settings: list[KconfigSetting]) -> str:
             rules=", ".join(f'"{r}"' for r in needed_rules),
         )
     ]
+
+    exported = [repo_name, "kconfig.manifest.json"]
+    if has_rendered_config:
+        exported.append("rendered.config")
+    parts.append("")
+    joined = ", ".join(f'"{f}"' for f in exported)
+    parts.append(f'exports_files(glob(["kconfig_srcs/**"]) + [{joined}])\n')
 
     for s in settings:
         parts.append("")
@@ -271,16 +175,21 @@ def _render_config_h_in(settings: list[KconfigSetting]) -> str:
     return _CONFIG_H_IN_TEMPLATE.format(undefs=undefs)
 
 
-def _render_manifest(kconf: kconfiglib.Kconfig, srctree: Path) -> str:
-    """Render a manifest of all Kconfig files visited during parsing."""
-    lines = []
+def _render_manifest_json(
+    kconf: Any, srctree: Path, *, has_defaults: bool = False
+) -> str:
+    """Render a JSON manifest with root and files list."""
+    files: list[str] = []
     for filename in kconf.kconfig_filenames:
         abs_path = Path(filename)
         if not abs_path.is_absolute():
             abs_path = srctree / filename
-        rel = abs_path.resolve().relative_to(srctree.resolve())
-        lines.append(str(PurePosixPath(rel)))
-    return "\n".join(lines) + "\n" if lines else ""
+        rel = abs_path.absolute().relative_to(srctree.absolute())
+        files.append(str(PurePosixPath(rel)))
+    manifest: dict[str, Any] = {"root": files[0], "files": files}
+    if has_defaults:
+        manifest["config"] = "rendered.config"
+    return json.dumps(manifest, indent=2) + "\n"
 
 
 def main() -> None:
@@ -289,22 +198,12 @@ def main() -> None:
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 
-    config: Path = args.config.resolve()
-    srctree: Path = (args.srctree or config.parent).resolve()
+    kconfig_path: Path = args.kconfig.absolute()
+    srctree: Path = (args.srctree or kconfig_path.parent).absolute()
 
-    log.info("Parsing %s (srctree=%s)", config, srctree)
+    log.info("Parsing %s (srctree=%s)", kconfig_path, srctree)
 
-    prev_dir = os.getcwd()
-    os.chdir(srctree)
-    try:
-        os.environ["srctree"] = str(srctree)
-        kconf = kconfiglib.Kconfig(
-            filename=str(config),
-            warn=False,
-            warn_to_stderr=False,
-        )
-    finally:
-        os.chdir(prev_dir)
+    kconf = parse_kconfig(kconfig_path, srctree)
 
     log.info(
         "Parsed %d unique symbols from %d files",
@@ -312,12 +211,32 @@ def main() -> None:
         len(kconf.kconfig_filenames),
     )
 
-    source_cache = read_source_files(kconf, srctree)
-    settings = collect_settings(kconf, source_cache)
+    has_defaults = args.defaults is not None
+    if has_defaults:
+        defaults_path = args.defaults.absolute()
+        log.info("Loading defaults from %s", defaults_path)
+        kconf.load_config(str(defaults_path))
 
-    args.out_build.write_text(_render_build_file(settings), encoding="utf-8")
+    source_cache = read_source_files(kconf, srctree)
+    settings = collect_settings(kconf, source_cache, has_defaults=has_defaults)
+
+    has_rendered = args.out_rendered_config is not None
+    args.out_build.write_text(
+        _render_build_file(
+            settings,
+            repo_name=args.repo_name,
+            has_rendered_config=has_rendered,
+        ),
+        encoding="utf-8",
+    )
     args.out_config_h_in.write_text(_render_config_h_in(settings), encoding="utf-8")
-    args.out_manifest.write_text(_render_manifest(kconf, srctree), encoding="utf-8")
+    args.out_manifest.write_text(
+        _render_manifest_json(kconf, srctree, has_defaults=has_defaults),
+        encoding="utf-8",
+    )
+
+    if has_rendered:
+        kconf.write_config(str(args.out_rendered_config))
 
 
 if __name__ == "__main__":
