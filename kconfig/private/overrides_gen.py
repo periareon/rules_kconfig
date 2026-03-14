@@ -45,6 +45,23 @@ with_kconfig_overrides(
     actual = "{kconfig_repo}//:config",
     visibility = ["//visibility:public"],
 )
+
+alias(
+    name = "lib",
+    actual = "{kconfig_repo}//:lib",
+    visibility = ["//visibility:public"],
+)
+"""
+
+_MENUCONFIG_TEMPLATE = """\
+load("@rules_kconfig//kconfig:menuconfig.bzl", "menuconfig")
+
+menuconfig(
+    name = "menuconfig",
+    config = "{config_ws_path}",
+    kconfig = "//:lib",
+    visibility = ["//visibility:public"],
+)
 """
 
 
@@ -91,6 +108,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         help="Output path for the generated BUILD.bazel.",
+    )
+    parser.add_argument(
+        "--config_ws_path",
+        type=str,
+        required=True,
+        help="Workspace-relative path to the .config file (for the generated menuconfig target).",
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
@@ -165,10 +188,12 @@ def main() -> None:
             overrides[flag_label] = _starlark_literal(override_s.default)
 
     args.out_defs.write_text(_render_defs(original_defaults, overrides), encoding="utf-8")
-    args.out_build.write_text(
-        _BUILD_TEMPLATE.format(kconfig_repo=args.kconfig_repo),
-        encoding="utf-8",
-    )
+
+    build_content = _BUILD_TEMPLATE.format(kconfig_repo=args.kconfig_repo)
+    build_content += "\n"
+    build_content += _MENUCONFIG_TEMPLATE.format(config_ws_path=args.config_ws_path)
+
+    args.out_build.write_text(build_content, encoding="utf-8")
 
 
 if __name__ == "__main__":

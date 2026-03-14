@@ -43,6 +43,14 @@ load(
     _kconfig = "kconfig",
 )
 load(
+    ":kconfig_info.bzl",
+    _KConfigInfo = "KConfigInfo",
+)
+load(
+    ":kconfig_library.bzl",
+    _kconfig_library = "kconfig_library",
+)
+load(
     ":kconfig_overrides_repository.bzl",
     _kconfig_overrides_repository = "kconfig_overrides_repository",
 )
@@ -60,7 +68,9 @@ load(
 )
 
 kconfig = _kconfig
+kconfig_library = _kconfig_library
 kconfig_overrides_repository = _kconfig_overrides_repository
 kconfig_repository = _kconfig_repository
 kconfig_toolchain = _kconfig_toolchain
+KConfigInfo = _KConfigInfo
 menuconfig = _menuconfig

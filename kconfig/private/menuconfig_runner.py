@@ -40,10 +40,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description="Interactive Kconfig editor")
     parser.add_argument(
-        "--kconfig", type=Path, required=True, help="Root Kconfig file path"
+        "--kconfig",
+        type=str,
+        required=True,
+        help="Rlocation path to the root Kconfig file",
     )
     parser.add_argument(
-        "--defaults", type=Path, required=True, help="Workspace-relative .config path"
+        "--config",
+        type=str,
+        required=True,
+        help="Workspace-relative path to the .config file",
     )
 
     return parser.parse_args(argv)
@@ -65,10 +71,23 @@ def main() -> None:
     argv = args_file.read_text(encoding="utf-8").splitlines()
     args = parse_args(argv)
 
-    os.chdir(workspace)
-    os.environ["KCONFIG_CONFIG"] = os.path.abspath(args.defaults)
+    config_path = os.path.join(workspace, args.config)
+    real_config = os.path.realpath(config_path)
+    real_workspace = os.path.realpath(workspace)
+    if (
+        not real_config.startswith(real_workspace + os.sep)
+        and real_config != real_workspace
+    ):
+        raise EnvironmentError(
+            f"The config file must be within the root module's workspace directory.\n"
+            f"  config resolves to: {real_config}\n"
+            f"  workspace root:     {real_workspace}"
+        )
 
-    sys.argv = [sys.argv[0], os.path.abspath(args.kconfig)]
+    kconfig_root = _rlocation(runfiles, args.kconfig)
+
+    os.environ["KCONFIG_CONFIG"] = config_path
+    sys.argv = [sys.argv[0], str(kconfig_root)] + sys.argv[1:]
 
     menuconfig.menuconfig(kconfiglib.standard_kconfig())
 

@@ -50,6 +50,10 @@ def _kconfig_repository_impl(repository_ctx):
         cmd.extend(["--out_rendered_config", rendered_config_file])
         repository_ctx.watch(defaults)
 
+        defaults_label = repository_ctx.attr.defaults
+        config_ws_path = (defaults_label.package + "/" + defaults_label.name).lstrip("/")
+        cmd.extend(["--config_ws_path", config_ws_path])
+
     rules_root = _rules_kconfig_root(repository_ctx)
     path_sep = ";" if "windows" in repository_ctx.os.name.lower() else ":"
     result = repository_ctx.execute(
