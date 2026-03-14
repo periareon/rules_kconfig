@@ -49,6 +49,10 @@ def _kconfig_overrides_repository_impl(repository_ctx):
         build_file,
     ]
 
+    config_label = repository_ctx.attr.config
+    config_ws_path = (config_label.package + "/" + config_label.name).lstrip("/")
+    cmd.extend(["--config_ws_path", config_ws_path])
+
     base_config = manifest.get("config")
     if base_config:
         base_config_path = manifest_path.dirname.get_child(base_config)
@@ -79,9 +83,27 @@ symlinked Kconfig source tree, then reparses with kconfiglib and a
 user-provided `.config` file. If the source repository was itself
 created with a `.config`, the overrides are stacked on top of those
 base values. Generates a `defs.bzl` containing a Starlark transition
-and wrapper rule (`with_kconfig_overrides`) that applies the overrides.
+and wrapper rule that apply the overrides.
 
 Values explicitly set on the command line take precedence over the overlay.
+
+The generated `defs.bzl` creates the transition and rule:
+
+| rule | description |
+| --- | --- |
+| `kconfig_override_transition` | A transition that applies transitions for each default in `.config` |
+| `with_kconfig_overrides` | A rule similar to [`alias`](https://bazel.build/reference/be/general#alias) that applies `kconfig_override_transition` to the target |
+
+Use `with_kconfig_overrides` to wrap a kconfig-dependent target:
+
+```python
+load("@base_kconfig_override//:defs.bzl", "with_kconfig_overrides")
+
+with_kconfig_overrides(
+    name = "config",
+    actual = ":consumer_of_base",
+)
+```
 """,
     implementation = _kconfig_overrides_repository_impl,
     attrs = {

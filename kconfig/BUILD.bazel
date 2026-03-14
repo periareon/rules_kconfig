@@ -4,6 +4,8 @@ exports_files([
     "requirements.in",
     "defs.bzl",
     "extensions.bzl",
+    "kconfig_info.bzl",
+    "kconfig_library.bzl",
     "kconfig_overrides_repository.bzl",
     "kconfig_repository.bzl",
     "kconfig_toolchain.bzl",

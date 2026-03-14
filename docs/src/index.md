@@ -137,7 +137,7 @@ The `menuconfig` rule launches kconfiglib's terminal UI for interactive
 Kconfig editing. Add a target to your `BUILD.bazel`:
 
 ```python
-load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+load("@rules_kconfig//kconfig:menuconfig.bzl", "menuconfig")
 
 menuconfig(
     name = "menuconfig",
