@@ -253,7 +253,7 @@ an actionable error message.</p>
 <h2 id="interactive-configuration-with-menuconfig"><a class="header" href="#interactive-configuration-with-menuconfig">Interactive configuration with <code>menuconfig</code></a></h2>
 <p>The <code>menuconfig</code> rule launches kconfiglib's terminal UI for interactive
 Kconfig editing. Add a target to your <code>BUILD.bazel</code>:</p>
-<pre><code class="language-python">load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+<pre><code class="language-python">load("@rules_kconfig//kconfig:menuconfig.bzl", "menuconfig")
 
 menuconfig(
     name = "menuconfig",

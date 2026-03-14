@@ -254,7 +254,7 @@ an actionable error message.</p>
 <h2 id="interactive-configuration-with-menuconfig"><a class="header" href="#interactive-configuration-with-menuconfig">Interactive configuration with <code>menuconfig</code></a></h2>
 <p>The <code>menuconfig</code> rule launches kconfiglib's terminal UI for interactive
 Kconfig editing. Add a target to your <code>BUILD.bazel</code>:</p>
-<pre><code class="language-python">load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
+<pre><code class="language-python">load("@rules_kconfig//kconfig:menuconfig.bzl", "menuconfig")
 
 menuconfig(
     name = "menuconfig",
@@ -323,8 +323,13 @@ use_repo(kconfig, "my_board_config")
 <p>See the <a href="./index.html">Introduction</a> for full setup and usage instructions.</p>
 <h2 id="rules"><a class="header" href="#rules">Rules</a></h2>
 <ul>
+<li><a href="rules.html#kconfig_library">kconfig_library</a></li>
 <li><a href="rules.html#kconfig_toolchain">kconfig_toolchain</a></li>
 <li><a href="rules.html#menuconfig">menuconfig</a></li>
+</ul>
+<h2 id="providers"><a class="header" href="#providers">Providers</a></h2>
+<ul>
+<li><a href="rules.html#KConfigInfo">KConfigInfo</a></li>
 </ul>
 <h2 id="repository-rules"><a class="header" href="#repository-rules">Repository Rules</a></h2>
 <ul>
@@ -335,6 +340,26 @@ use_repo(kconfig, "my_board_config")
 <ul>
 <li><a href="rules.html#kconfig">kconfig</a></li>
 </ul>
+<p><a id="kconfig_library"></a></p>
+<h2 id="kconfig_library"><a class="header" href="#kconfig_library">kconfig_library</a></h2>
+<pre>
+load("@rules_kconfig//kconfig:defs.bzl", "kconfig_library")
+
+kconfig_library(<a href="rules.html#kconfig_library-name">name</a>, <a href="rules.html#kconfig_library-deps">deps</a>, <a href="rules.html#kconfig_library-srcs">srcs</a>, <a href="rules.html#kconfig_library-root">root</a>)
+</pre>
+<p>Collect Kconfig source files into a single provider for use by <code>menuconfig</code> and repository rules.</p>
+<p>All source files must be real (non-generated) files. If a single source is
+provided, it is automatically treated as the root. When multiple sources are
+present, set <code>root</code> explicitly to indicate the top-level Kconfig entry point.
+Transitive sources from <code>deps</code> are included in the provider.</p>
+<p><strong>ATTRIBUTES</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="kconfig_library-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-deps"></a>deps</td><td style="text-align: left">Other <code>kconfig_library</code> targets whose sources should be included transitively.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-srcs"></a>srcs</td><td style="text-align: left">Kconfig source files. Must be real (non-generated) files.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-root"></a>root</td><td style="text-align: left">The top-level Kconfig file. Inferred automatically when <code>srcs</code> contains exactly one file.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
+</tbody></table>
+</div>
 <p><a id="kconfig_toolchain"></a></p>
 <h2 id="kconfig_toolchain"><a class="header" href="#kconfig_toolchain">kconfig_toolchain</a></h2>
 <pre>
@@ -354,17 +379,31 @@ kconfig_toolchain(<a href="rules.html#kconfig_toolchain-name">name</a>, <a href=
 <pre>
 load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
 
-menuconfig(<a href="rules.html#menuconfig-name">name</a>, <a href="rules.html#menuconfig-defaults">defaults</a>, <a href="rules.html#menuconfig-kconfig">kconfig</a>)
+menuconfig(<a href="rules.html#menuconfig-name">name</a>, <a href="rules.html#menuconfig-config">config</a>, <a href="rules.html#menuconfig-kconfig">kconfig</a>)
 </pre>
 <p>Launch kconfiglib's menuconfig TUI for interactive Kconfig editing.</p>
 <p>Run with <code>bazel run</code> to interactively create or edit a <code>.config</code> file
 against a Kconfig tree. The TUI writes the resulting configuration to
-the path specified by <code>defaults</code> (relative to the workspace root).</p>
+the path specified by <code>config</code> (relative to the workspace root).</p>
 <p><strong>ATTRIBUTES</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="menuconfig-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="menuconfig-defaults"></a>defaults</td><td style="text-align: left">Workspace-relative path to the <code>.config</code> file to read/write.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>".config"</code></td></tr>
-<tr><td style="text-align: left"><a id="menuconfig-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-config"></a>config</td><td style="text-align: left">Workspace-relative path to the <code>.config</code> file to read/write.</td><td style="text-align: left">String</td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-kconfig"></a>kconfig</td><td style="text-align: left">A kconfig_library target providing the Kconfig source tree.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+</tbody></table>
+</div>
+<p><a id="KConfigInfo"></a></p>
+<h2 id="kconfiginfo"><a class="header" href="#kconfiginfo">KConfigInfo</a></h2>
+<pre>
+load("@rules_kconfig//kconfig:defs.bzl", "KConfigInfo")
+
+KConfigInfo(<a href="rules.html#KConfigInfo-root">root</a>, <a href="rules.html#KConfigInfo-srcs">srcs</a>)
+</pre>
+<p>Encapsulates a Kconfig source tree: an optional root file and all source files (direct and transitive).</p>
+<p><strong>FIELDS</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="KConfigInfo-root"></a>root</td><td style="text-align: left">Optional[File]: The top-level Kconfig file that kconfiglib should parse. May be None when a library contributes sources but is not itself a root.</td></tr>
+<tr><td style="text-align: left"><a id="KConfigInfo-srcs"></a>srcs</td><td style="text-align: left">depset[File]: All Kconfig source files (direct and transitive) reachable from this library.</td></tr>
 </tbody></table>
 </div>
 <p><a id="kconfig_overrides_repository"></a></p>
@@ -380,8 +419,22 @@ symlinked Kconfig source tree, then reparses with kconfiglib and a
 user-provided <code>.config</code> file. If the source repository was itself
 created with a <code>.config</code>, the overrides are stacked on top of those
 base values. Generates a <code>defs.bzl</code> containing a Starlark transition
-and wrapper rule (<code>with_kconfig_overrides</code>) that applies the overrides.</p>
+and wrapper rule that apply the overrides.</p>
 <p>Values explicitly set on the command line take precedence over the overlay.</p>
+<p>The generated <code>defs.bzl</code> creates the transition and rule:</p>
+<div class="table-wrapper"><table><thead><tr><th>rule</th><th>description</th></tr></thead><tbody>
+<tr><td><code>kconfig_override_transition</code></td><td>A transition that applies transitions for each default in <code>.config</code></td></tr>
+<tr><td><code>with_kconfig_overrides</code></td><td>A rule similar to <a href="https://bazel.build/reference/be/general#alias"><code>alias</code></a> that applies <code>kconfig_override_transition</code> to the target</td></tr>
+</tbody></table>
+</div>
+<p>Use <code>with_kconfig_overrides</code> to wrap a kconfig-dependent target:</p>
+<pre><code class="language-python">load("@base_kconfig_override//:defs.bzl", "with_kconfig_overrides")
+
+with_kconfig_overrides(
+    name = "config",
+    actual = ":consumer_of_base",
+)
+</code></pre>
 <p><strong>ATTRIBUTES</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="kconfig_overrides_repository-name"></a>name</td><td style="text-align: left">A unique name for this repository.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
