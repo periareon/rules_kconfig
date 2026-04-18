@@ -49,6 +49,9 @@ def _kconfig_overrides_repository_impl(repository_ctx):
         build_file,
     ]
 
+    rendered_config = repository_ctx.path("rendered.config")
+    cmd.extend(["--out_rendered_config", rendered_config])
+
     config_label = repository_ctx.attr.config
     config_ws_path = (config_label.package + "/" + config_label.name).lstrip("/")
     cmd.extend(["--config_ws_path", config_ws_path])

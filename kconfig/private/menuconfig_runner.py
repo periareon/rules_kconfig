@@ -87,6 +87,7 @@ def main() -> None:
     kconfig_root = _rlocation(runfiles, args.kconfig)
 
     os.environ["KCONFIG_CONFIG"] = config_path
+    os.environ["srctree"] = str(kconfig_root.parent)
     sys.argv = [sys.argv[0], str(kconfig_root)] + sys.argv[1:]
 
     menuconfig.menuconfig(kconfiglib.standard_kconfig())

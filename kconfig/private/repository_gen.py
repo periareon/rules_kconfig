@@ -27,6 +27,7 @@ _FLAG_TEMPLATE = """\
 
 _AUTOCONF_TEMPLATE = """\
 load("@rules_kconfig//kconfig/private:kconfig_autoconf.bzl", "kconfig_autoconf")
+load("@rules_kconfig//kconfig/private:kconfig_savedefconfig.bzl", "kconfig_savedefconfig")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
 
@@ -50,6 +51,17 @@ cc_library(
     name = "config",
     hdrs = ["config.h"],
     includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_savedefconfig(
+    name = "savedefconfig",
+    settings = [
+{settings}
+    ],
+    defaults = {{
+{defaults}
+    }},
     visibility = ["//visibility:public"],
 )
 """
@@ -119,7 +131,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out_rendered_config",
         type=Path,
-        default=None,
+        required=True,
         help="The output location of the rendered .config file.",
     )
     parser.add_argument(
@@ -154,6 +166,21 @@ def _starlark_default(setting: KconfigSetting) -> str:
         return str(val)
     escaped = val.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
+
+
+def _default_as_string(setting: KconfigSetting) -> str:
+    """Format a :class:`KconfigSetting` default for use in a string_dict value.
+
+    Bools become ``"True"``/``"False"``, ints become their decimal
+    representation, and strings are returned as-is (with inner quotes
+    and backslashes escaped for Starlark).
+    """
+    val = setting.default
+    if isinstance(val, bool):
+        return "True" if val else "False"
+    if isinstance(val, int):
+        return str(val)
+    return val.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _render_build_file(
@@ -193,8 +220,11 @@ def _render_build_file(
         )
 
     settings_str = "\n".join(f'        ":CONFIG_{s.name}",' for s in settings)
+    defaults_str = "\n".join(
+        f'        "CONFIG_{s.name}": "{_default_as_string(s)}",' for s in settings
+    )
     parts.append("")
-    parts.append(_AUTOCONF_TEMPLATE.format(settings=settings_str))
+    parts.append(_AUTOCONF_TEMPLATE.format(settings=settings_str, defaults=defaults_str))
 
     parts.append("")
     parts.append(_KCONFIG_LIBRARY_TEMPLATE.format(root=root_file))
@@ -257,8 +287,6 @@ def main() -> None:
     source_cache = read_source_files(kconf, srctree)
     settings = collect_settings(kconf, source_cache, has_defaults=has_defaults)
 
-    has_rendered = args.out_rendered_config is not None
-
     manifest_json = _render_manifest_json(kconf, srctree, has_defaults=has_defaults)
     manifest_data = json.loads(manifest_json)
 
@@ -267,7 +295,7 @@ def main() -> None:
             settings,
             repo_name=args.repo_name,
             root_file=manifest_data["root"],
-            has_rendered_config=has_rendered,
+            has_rendered_config=True,
             config_ws_path=args.config_ws_path,
         ),
         encoding="utf-8",
@@ -275,8 +303,7 @@ def main() -> None:
     args.out_config_h_in.write_text(_render_config_h_in(settings), encoding="utf-8")
     args.out_manifest.write_text(manifest_json, encoding="utf-8")
 
-    if has_rendered:
-        kconf.write_config(str(args.out_rendered_config))
+    kconf.write_config(str(args.out_rendered_config))
 
 
 if __name__ == "__main__":

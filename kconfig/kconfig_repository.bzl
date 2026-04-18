@@ -25,6 +25,8 @@ def _kconfig_repository_impl(repository_ctx):
 
     repo_name = repository_ctx.attr.apparent_name or repository_ctx.name
 
+    rendered_config_file = repository_ctx.path("rendered.config")
+
     cmd = [
         python,
         "-B",
@@ -39,15 +41,15 @@ def _kconfig_repository_impl(repository_ctx):
         manifest_file,
         "--out_config_h_in",
         config_h_in_file,
+        "--out_rendered_config",
+        rendered_config_file,
         "--repo_name",
         repo_name,
     ]
 
     if repository_ctx.attr.defaults:
         defaults = repository_ctx.path(repository_ctx.attr.defaults)
-        rendered_config_file = repository_ctx.path("rendered.config")
         cmd.extend(["--defaults", defaults])
-        cmd.extend(["--out_rendered_config", rendered_config_file])
         repository_ctx.watch(defaults)
 
         defaults_label = repository_ctx.attr.defaults
