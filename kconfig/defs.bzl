@@ -39,6 +39,10 @@ See the [Introduction](./index.md) for full setup and usage instructions.
 """
 
 load(
+    "//kconfig/private:kconfig_settings_group.bzl",
+    _KconfigSettingsInfo = "KconfigSettingsInfo",
+)
+load(
     ":extensions.bzl",
     _kconfig = "kconfig",
 )
@@ -73,4 +77,5 @@ kconfig_overrides_repository = _kconfig_overrides_repository
 kconfig_repository = _kconfig_repository
 kconfig_toolchain = _kconfig_toolchain
 KConfigInfo = _KConfigInfo
+KconfigSettingsInfo = _KconfigSettingsInfo
 menuconfig = _menuconfig
