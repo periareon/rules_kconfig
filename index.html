@@ -186,7 +186,7 @@ use_repo(kconfig, "my_kconfig")
 </code></pre>
 <h2 id="generated-repository"><a class="header" href="#generated-repository">Generated repository</a></h2>
 <p>For a Kconfig file such as:</p>
-<pre><code>config FOO
+<pre><code class="language-text">config FOO
     bool "Enable FOO"
     default n
 
@@ -199,12 +199,14 @@ config COUNT
 <tr><td><code>@my_kconfig//:CONFIG_FOO</code></td><td><code>bool_flag</code> (default <code>False</code>)</td></tr>
 <tr><td><code>@my_kconfig//:CONFIG_COUNT</code></td><td><code>int_flag</code> (default <code>3</code>)</td></tr>
 <tr><td><code>@my_kconfig//:config</code></td><td><code>cc_library</code> providing <code>config.h</code></td></tr>
+<tr><td><code>@my_kconfig//settings.CONFIG_FOO</code></td><td><code>config_setting</code> matching <code>CONFIG_FOO = true</code></td></tr>
+<tr><td><code>@my_kconfig//settings.CONFIG_COUNT_3</code></td><td><code>config_setting</code> matching <code>CONFIG_COUNT = 3</code></td></tr>
 </tbody></table>
 </div>
 <h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
 <h3 id="setting-flag-values"><a class="header" href="#setting-flag-values">Setting flag values</a></h3>
 <p>Flags can be set on the command line or in <code>.bazelrc</code>:</p>
-<pre><code>build --@my_kconfig//:CONFIG_FOO=true
+<pre><code class="language-text">build --@my_kconfig//:CONFIG_FOO=true
 build --@my_kconfig//:CONFIG_COUNT=7
 </code></pre>
 <h3 id="consuming-configh"><a class="header" href="#consuming-configh">Consuming <code>config.h</code></a></h3>
@@ -222,21 +224,37 @@ build --@my_kconfig//:CONFIG_COUNT=7
 #endif
 </code></pre>
 <h3 id="reacting-to-flags-with-config_setting"><a class="header" href="#reacting-to-flags-with-config_setting">Reacting to flags with <code>config_setting</code></a></h3>
-<p>Use <code>config_setting</code> + <code>select()</code> to vary build behavior:</p>
-<pre><code class="language-python">config_setting(
-    name = "foo_enabled",
-    flag_values = {"@my_kconfig//:CONFIG_FOO": "true"},
-)
-
-cc_library(
+<p>The generated repository includes a <code>settings/</code> subpackage with
+<code>config_setting</code> targets for every flag. Bool flags produce a single
+target matching <code>"true"</code>; int and string flags produce a target matching
+their Kconfig default value (named <code>CONFIG_&lt;NAME&gt;_&lt;value&gt;</code>).</p>
+<p>Use these directly in <code>select()</code>:</p>
+<pre><code class="language-python">cc_library(
     name = "mylib",
     srcs = ["mylib.c"],
     deps = select({
-        ":foo_enabled": ["//extras:foo_support"],
+        "@my_kconfig//settings:kconfig.CONFIG_FOO": ["//extras:foo_support"],
         "//conditions:default": [],
     }),
 )
 </code></pre>
+<h4 id="custom-values-with-kconfig_config_settings"><a class="header" href="#custom-values-with-kconfig_config_settings">Custom values with <code>kconfig_config_settings</code></a></h4>
+<p>To match non-default values or multiple values for an int/string flag,
+load the generated <code>settings.bzl</code> macro and pass an <code>options</code> dict.
+The <code>name</code> parameter prefixes every generated target:</p>
+<pre><code class="language-python">load("@my_kconfig//:settings.bzl", "kconfig_config_settings")
+
+kconfig_config_settings(
+    name = "settings",
+    options = {
+        "CONFIG_COUNT": ["1", "3", "5"],
+    },
+)
+</code></pre>
+<p>This produces <code>settings.CONFIG_FOO</code> (bool, auto), <code>settings.CONFIG_COUNT_1</code>,
+<code>settings.CONFIG_COUNT_3</code>, and <code>settings.CONFIG_COUNT_5</code>. Flags not listed
+in <code>options</code> fall back to their Kconfig default. Flags with neither are
+simply skipped.</p>
 <h2 id="providing-defaults-via-config"><a class="header" href="#providing-defaults-via-config">Providing defaults via <code>.config</code></a></h2>
 <p>You can supply a <code>.config</code> file to override Kconfig defaults. Pass the
 <code>defaults</code> attribute when declaring the repository:</p>
@@ -261,7 +279,7 @@ menuconfig(
 )
 </code></pre>
 <p>Then run:</p>
-<pre><code>bazel run //:menuconfig
+<pre><code class="language-bash">bazel run //:menuconfig
 </code></pre>
 <p>The TUI reads and writes the <code>.config</code> file in your workspace root.</p>
 <h2 id="overriding-configuration-on-external-repositories"><a class="header" href="#overriding-configuration-on-external-repositories">Overriding configuration on external repositories</a></h2>

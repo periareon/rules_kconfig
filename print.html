@@ -187,7 +187,7 @@ use_repo(kconfig, "my_kconfig")
 </code></pre>
 <h2 id="generated-repository"><a class="header" href="#generated-repository">Generated repository</a></h2>
 <p>For a Kconfig file such as:</p>
-<pre><code>config FOO
+<pre><code class="language-text">config FOO
     bool "Enable FOO"
     default n
 
@@ -200,12 +200,14 @@ config COUNT
 <tr><td><code>@my_kconfig//:CONFIG_FOO</code></td><td><code>bool_flag</code> (default <code>False</code>)</td></tr>
 <tr><td><code>@my_kconfig//:CONFIG_COUNT</code></td><td><code>int_flag</code> (default <code>3</code>)</td></tr>
 <tr><td><code>@my_kconfig//:config</code></td><td><code>cc_library</code> providing <code>config.h</code></td></tr>
+<tr><td><code>@my_kconfig//settings.CONFIG_FOO</code></td><td><code>config_setting</code> matching <code>CONFIG_FOO = true</code></td></tr>
+<tr><td><code>@my_kconfig//settings.CONFIG_COUNT_3</code></td><td><code>config_setting</code> matching <code>CONFIG_COUNT = 3</code></td></tr>
 </tbody></table>
 </div>
 <h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
 <h3 id="setting-flag-values"><a class="header" href="#setting-flag-values">Setting flag values</a></h3>
 <p>Flags can be set on the command line or in <code>.bazelrc</code>:</p>
-<pre><code>build --@my_kconfig//:CONFIG_FOO=true
+<pre><code class="language-text">build --@my_kconfig//:CONFIG_FOO=true
 build --@my_kconfig//:CONFIG_COUNT=7
 </code></pre>
 <h3 id="consuming-configh"><a class="header" href="#consuming-configh">Consuming <code>config.h</code></a></h3>
@@ -223,21 +225,37 @@ build --@my_kconfig//:CONFIG_COUNT=7
 #endif
 </code></pre>
 <h3 id="reacting-to-flags-with-config_setting"><a class="header" href="#reacting-to-flags-with-config_setting">Reacting to flags with <code>config_setting</code></a></h3>
-<p>Use <code>config_setting</code> + <code>select()</code> to vary build behavior:</p>
-<pre><code class="language-python">config_setting(
-    name = "foo_enabled",
-    flag_values = {"@my_kconfig//:CONFIG_FOO": "true"},
-)
-
-cc_library(
+<p>The generated repository includes a <code>settings/</code> subpackage with
+<code>config_setting</code> targets for every flag. Bool flags produce a single
+target matching <code>"true"</code>; int and string flags produce a target matching
+their Kconfig default value (named <code>CONFIG_&lt;NAME&gt;_&lt;value&gt;</code>).</p>
+<p>Use these directly in <code>select()</code>:</p>
+<pre><code class="language-python">cc_library(
     name = "mylib",
     srcs = ["mylib.c"],
     deps = select({
-        ":foo_enabled": ["//extras:foo_support"],
+        "@my_kconfig//settings:kconfig.CONFIG_FOO": ["//extras:foo_support"],
         "//conditions:default": [],
     }),
 )
 </code></pre>
+<h4 id="custom-values-with-kconfig_config_settings"><a class="header" href="#custom-values-with-kconfig_config_settings">Custom values with <code>kconfig_config_settings</code></a></h4>
+<p>To match non-default values or multiple values for an int/string flag,
+load the generated <code>settings.bzl</code> macro and pass an <code>options</code> dict.
+The <code>name</code> parameter prefixes every generated target:</p>
+<pre><code class="language-python">load("@my_kconfig//:settings.bzl", "kconfig_config_settings")
+
+kconfig_config_settings(
+    name = "settings",
+    options = {
+        "CONFIG_COUNT": ["1", "3", "5"],
+    },
+)
+</code></pre>
+<p>This produces <code>settings.CONFIG_FOO</code> (bool, auto), <code>settings.CONFIG_COUNT_1</code>,
+<code>settings.CONFIG_COUNT_3</code>, and <code>settings.CONFIG_COUNT_5</code>. Flags not listed
+in <code>options</code> fall back to their Kconfig default. Flags with neither are
+simply skipped.</p>
 <h2 id="providing-defaults-via-config"><a class="header" href="#providing-defaults-via-config">Providing defaults via <code>.config</code></a></h2>
 <p>You can supply a <code>.config</code> file to override Kconfig defaults. Pass the
 <code>defaults</code> attribute when declaring the repository:</p>
@@ -262,7 +280,7 @@ menuconfig(
 )
 </code></pre>
 <p>Then run:</p>
-<pre><code>bazel run //:menuconfig
+<pre><code class="language-bash">bazel run //:menuconfig
 </code></pre>
 <p>The TUI reads and writes the <code>.config</code> file in your workspace root.</p>
 <h2 id="overriding-configuration-on-external-repositories"><a class="header" href="#overriding-configuration-on-external-repositories">Overriding configuration on external repositories</a></h2>
@@ -330,6 +348,7 @@ use_repo(kconfig, "my_board_config")
 <h2 id="providers"><a class="header" href="#providers">Providers</a></h2>
 <ul>
 <li><a href="rules.html#KConfigInfo">KConfigInfo</a></li>
+<li><a href="rules.html#KconfigSettingsInfo">KconfigSettingsInfo</a></li>
 </ul>
 <h2 id="repository-rules"><a class="header" href="#repository-rules">Repository Rules</a></h2>
 <ul>
@@ -406,6 +425,19 @@ KConfigInfo(<a href="rules.html#KConfigInfo-root">root</a>, <a href="rules.html#
 <tr><td style="text-align: left"><a id="KConfigInfo-srcs"></a>srcs</td><td style="text-align: left">depset[File]: All Kconfig source files (direct and transitive) reachable from this library.</td></tr>
 </tbody></table>
 </div>
+<p><a id="KconfigSettingsInfo"></a></p>
+<h2 id="kconfigsettingsinfo"><a class="header" href="#kconfigsettingsinfo">KconfigSettingsInfo</a></h2>
+<pre>
+load("@rules_kconfig//kconfig:defs.bzl", "KconfigSettingsInfo")
+
+KconfigSettingsInfo(<a href="rules.html#KconfigSettingsInfo-settings">settings</a>)
+</pre>
+<p>Aggregates BuildSettingInfo from all CONFIG_* flags in a kconfig repository.</p>
+<p><strong>FIELDS</strong></p>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th></tr></thead><tbody>
+<tr><td style="text-align: left"><a id="KconfigSettingsInfo-settings"></a>settings</td><td style="text-align: left">dict[str, BuildSettingInfo]: Maps CONFIG_* names to their BuildSettingInfo.</td></tr>
+</tbody></table>
+</div>
 <p><a id="kconfig_overrides_repository"></a></p>
 <h2 id="kconfig_overrides_repository"><a class="header" href="#kconfig_overrides_repository">kconfig_overrides_repository</a></h2>
 <pre>
@@ -449,7 +481,8 @@ with_kconfig_overrides(
 <pre>
 load("@rules_kconfig//kconfig:defs.bzl", "kconfig_repository")
 
-kconfig_repository(<a href="rules.html#kconfig_repository-name">name</a>, <a href="rules.html#kconfig_repository-apparent_name">apparent_name</a>, <a href="rules.html#kconfig_repository-defaults">defaults</a>, <a href="rules.html#kconfig_repository-interpreter">interpreter</a>, <a href="rules.html#kconfig_repository-kconfig">kconfig</a>, <a href="rules.html#kconfig_repository-kconfiglib_anchor">kconfiglib_anchor</a>)
+kconfig_repository(<a href="rules.html#kconfig_repository-name">name</a>, <a href="rules.html#kconfig_repository-apparent_name">apparent_name</a>, <a href="rules.html#kconfig_repository-defaults">defaults</a>, <a href="rules.html#kconfig_repository-interpreter">interpreter</a>, <a href="rules.html#kconfig_repository-kconfig">kconfig</a>, <a href="rules.html#kconfig_repository-kconfiglib_anchor">kconfiglib_anchor</a>,
+                   <a href="rules.html#kconfig_repository-settings_options">settings_options</a>)
 </pre>
 <p>Parse a Kconfig file tree and generate a Bazel repository with build settings.</p>
 <p>The generated repository contains a <code>bool_flag</code>, <code>int_flag</code>, or <code>string_flag</code>
@@ -470,6 +503,7 @@ directly.</p>
 <tr><td style="text-align: left"><a id="kconfig_repository-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfiglib_anchor"></a>kconfiglib_anchor</td><td style="text-align: left">Label used to locate the <code>kconfiglib</code> package. Managed by the module extension.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 </tbody></table>
 </div>
 <p><a id="kconfig"></a></p>
@@ -477,7 +511,7 @@ directly.</p>
 <pre>
 kconfig = use_extension("@rules_kconfig//kconfig:defs.bzl", "kconfig")
 kconfig.overrides(<a href="rules.html#kconfig.overrides-name">name</a>, <a href="rules.html#kconfig.overrides-config">config</a>, <a href="rules.html#kconfig.overrides-interpreter">interpreter</a>, <a href="rules.html#kconfig.overrides-kconfig">kconfig</a>)
-kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.html#kconfig.repo-defaults">defaults</a>, <a href="rules.html#kconfig.repo-interpreter">interpreter</a>, <a href="rules.html#kconfig.repo-kconfig">kconfig</a>)
+kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.html#kconfig.repo-defaults">defaults</a>, <a href="rules.html#kconfig.repo-interpreter">interpreter</a>, <a href="rules.html#kconfig.repo-kconfig">kconfig</a>, <a href="rules.html#kconfig.repo-settings_options">settings_options</a>)
 </pre>
 <p>Configure kconfig repositories.</p>
 <p><strong>TAG CLASSES</strong></p>
@@ -501,6 +535,7 @@ kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.htm
 <tr><td style="text-align: left"><a id="kconfig.repo-defaults"></a>defaults</td><td style="text-align: left">Optional .config file providing default overrides for Kconfig symbols.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser (e.g. <code>@python_3_12_host//:python</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 </tbody></table>
 </div>
                     </main>
