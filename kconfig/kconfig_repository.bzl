@@ -26,6 +26,8 @@ def _kconfig_repository_impl(repository_ctx):
     repo_name = repository_ctx.attr.apparent_name or repository_ctx.name
 
     rendered_config_file = repository_ctx.path("rendered.config")
+    settings_bzl_file = repository_ctx.path("settings.bzl")
+    settings_build_file = repository_ctx.path("settings/BUILD.bazel")
 
     cmd = [
         python,
@@ -43,6 +45,10 @@ def _kconfig_repository_impl(repository_ctx):
         config_h_in_file,
         "--out_rendered_config",
         rendered_config_file,
+        "--out_settings_bzl",
+        settings_bzl_file,
+        "--out_settings_build",
+        settings_build_file,
         "--repo_name",
         repo_name,
     ]
@@ -55,6 +61,9 @@ def _kconfig_repository_impl(repository_ctx):
         defaults_label = repository_ctx.attr.defaults
         config_ws_path = (defaults_label.package + "/" + defaults_label.name).lstrip("/")
         cmd.extend(["--config_ws_path", config_ws_path])
+
+    if repository_ctx.attr.settings_options:
+        cmd.extend(["--settings_options", json.encode(repository_ctx.attr.settings_options)])
 
     rules_root = _rules_kconfig_root(repository_ctx)
     path_sep = ";" if "windows" in repository_ctx.os.name.lower() else ":"
@@ -114,6 +123,10 @@ directly.
         "kconfiglib_anchor": attr.label(
             doc = "Label used to locate the `kconfiglib` package. Managed by the module extension.",
             mandatory = True,
+        ),
+        "settings_options": attr.string_list_dict(
+            doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
+            default = {},
         ),
         "_kconfig_parser": attr.label(
             default = Label("//kconfig/private:kconfig_parser.py"),

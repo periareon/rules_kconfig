@@ -7,7 +7,7 @@ A kconfig repository exposes each `config` symbol as a Bazel
 [build setting](https://bazel.build/extending/config) flag
 (`bool_flag`, `int_flag`, or `string_flag`) whose default matches the
 Kconfig-declared default. It also generates a `config.h` header (via
-[rules\_cc\_autoconf](https://github.com/periareon/rules_cc_autoconf)) that
+[rules_cc_autoconf](https://github.com/periareon/rules_cc_autoconf)) that
 reflects the active flag values, so C/C++ code can consume the configuration
 with `#include "config.h"`.
 
@@ -20,7 +20,7 @@ bazel_dep(name = "rules_kconfig", version = "{version}")
 ```
 
 A Python toolchain is required for parsing. Configure one with
-[rules\_python](https://github.com/bazelbuild/rules_python):
+[rules_python](https://github.com/bazelbuild/rules_python):
 
 ```python
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
@@ -44,7 +44,7 @@ use_repo(kconfig, "my_kconfig")
 
 For a Kconfig file such as:
 
-```
+```text
 config FOO
     bool "Enable FOO"
     default n
@@ -56,11 +56,13 @@ config COUNT
 
 The generated repository `@my_kconfig` contains:
 
-| Target | Description |
-|--------|-------------|
-| `@my_kconfig//:CONFIG_FOO` | `bool_flag` (default `False`) |
-| `@my_kconfig//:CONFIG_COUNT` | `int_flag` (default `3`) |
-| `@my_kconfig//:config` | `cc_library` providing `config.h` |
+| Target                                 | Description                                   |
+| -------------------------------------- | --------------------------------------------- |
+| `@my_kconfig//:CONFIG_FOO`             | `bool_flag` (default `False`)                 |
+| `@my_kconfig//:CONFIG_COUNT`           | `int_flag` (default `3`)                      |
+| `@my_kconfig//:config`                 | `cc_library` providing `config.h`             |
+| `@my_kconfig//settings.CONFIG_FOO`     | `config_setting` matching `CONFIG_FOO = true` |
+| `@my_kconfig//settings.CONFIG_COUNT_3` | `config_setting` matching `CONFIG_COUNT = 3`  |
 
 ## Usage
 
@@ -68,7 +70,7 @@ The generated repository `@my_kconfig` contains:
 
 Flags can be set on the command line or in `.bazelrc`:
 
-```
+```text
 build --@my_kconfig//:CONFIG_FOO=true
 build --@my_kconfig//:CONFIG_COUNT=7
 ```
@@ -95,23 +97,45 @@ cc_library(
 
 ### Reacting to flags with `config_setting`
 
-Use `config_setting` + `select()` to vary build behavior:
+The generated repository includes a `settings/` subpackage with
+`config_setting` targets for every flag. Bool flags produce a single
+target matching `"true"`; int and string flags produce a target matching
+their Kconfig default value (named `CONFIG_<NAME>_<value>`).
+
+Use these directly in `select()`:
 
 ```python
-config_setting(
-    name = "foo_enabled",
-    flag_values = {"@my_kconfig//:CONFIG_FOO": "true"},
-)
-
 cc_library(
     name = "mylib",
     srcs = ["mylib.c"],
     deps = select({
-        ":foo_enabled": ["//extras:foo_support"],
+        "@my_kconfig//settings:kconfig.CONFIG_FOO": ["//extras:foo_support"],
         "//conditions:default": [],
     }),
 )
 ```
+
+#### Custom values with `kconfig_config_settings`
+
+To match non-default values or multiple values for an int/string flag,
+load the generated `settings.bzl` macro and pass an `options` dict.
+The `name` parameter prefixes every generated target:
+
+```python
+load("@my_kconfig//:settings.bzl", "kconfig_config_settings")
+
+kconfig_config_settings(
+    name = "settings",
+    options = {
+        "CONFIG_COUNT": ["1", "3", "5"],
+    },
+)
+```
+
+This produces `settings.CONFIG_FOO` (bool, auto), `settings.CONFIG_COUNT_1`,
+`settings.CONFIG_COUNT_3`, and `settings.CONFIG_COUNT_5`. Flags not listed
+in `options` fall back to their Kconfig default. Flags with neither are
+simply skipped.
 
 ## Providing defaults via `.config`
 
@@ -147,7 +171,7 @@ menuconfig(
 
 Then run:
 
-```
+```bash
 bazel run //:menuconfig
 ```
 

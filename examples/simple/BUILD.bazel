@@ -3,14 +3,17 @@
 #
 #   build --@simple_kconfig//:CONFIG_FOO=true
 #
-# config_setting targets let you use select() to conditionally change build
-# behavior based on the current value of a kconfig flag. Below we define one
-# config_setting per flag to match its expected value, then use select() to
-# pass defines into the test — proving the flag values propagate correctly
-# without ever including the generated config.h.
+# The kconfig repository auto-generates config_setting targets under
+# //settings: for every flag. Bool flags match "true"; int/string flags
+# match their Kconfig default value. Use select() on these targets to
+# conditionally change build behavior.
+#
+# You can also invoke the generated macro locally to create config_settings
+# for custom values (see the kconfig_config_settings call below).
 
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_kconfig//kconfig:menuconfig.bzl", "menuconfig")
+load("@simple_kconfig//:settings.bzl", "kconfig_config_settings")
 
 menuconfig(
     name = "menuconfig",
@@ -18,22 +21,14 @@ menuconfig(
     kconfig = "@simple_kconfig//:lib",
 )
 
-# bool flag — set to true via .bazelrc
-config_setting(
-    name = "foo_enabled",
-    flag_values = {"@simple_kconfig//:CONFIG_FOO": "true"},
-)
-
-# int flag — Kconfig default is 3
-config_setting(
-    name = "count_is_3",
-    flag_values = {"@simple_kconfig//:CONFIG_COUNT": "3"},
-)
-
-# string flag — Kconfig default is "hello"
-config_setting(
-    name = "label_is_hello",
-    flag_values = {"@simple_kconfig//:CONFIG_LABEL": "hello"},
+kconfig_config_settings(
+    name = "settings",
+    options = {
+        "CONFIG_LABEL": [
+            "hello",
+            "world",
+        ],
+    },
 )
 
 cc_test(
@@ -41,15 +36,15 @@ cc_test(
     srcs = ["test_config_settings.c"],
     local_defines =
         select({
-            ":foo_enabled": ["FOO_MATCHED"],
+            ":settings.CONFIG_FOO": ["FOO_MATCHED"],
             "//conditions:default": [],
         }) +
         select({
-            ":count_is_3": ["COUNT_MATCHED"],
+            ":settings.CONFIG_COUNT_3": ["COUNT_MATCHED"],
             "//conditions:default": [],
         }) +
         select({
-            ":label_is_hello": ["LABEL_MATCHED"],
+            ":settings.CONFIG_LABEL_hello": ["LABEL_MATCHED"],
             "//conditions:default": [],
         }),
 )

@@ -22,6 +22,10 @@ _LOAD = tag_class(
             doc = "The name of the generated repository. Symbols are accessible as `@<name>//:CONFIG_<symbol>`.",
             mandatory = True,
         ),
+        "settings_options": attr.string_list_dict(
+            doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
+            default = {},
+        ),
     },
 )
 
@@ -61,6 +65,7 @@ def _kconfig_impl(module_ctx):
                 kconfig = tag.kconfig,
                 kconfiglib_anchor = "@kconfiglib//:BUILD.bazel",
                 interpreter = tag.interpreter,
+                settings_options = tag.settings_options,
             )
 
         for tag in getattr(module.tags, "overrides", []):
