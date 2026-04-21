@@ -4,7 +4,7 @@ import argparse
 import json
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from kconfig.private.kconfig_parser import (
     KconfigSetting,
@@ -353,10 +353,23 @@ def _render_settings_bzl(settings: list[KconfigSetting]) -> str:
     )
 
 
-def _render_manifest_json(
+class KconfigManifest(TypedDict):
+    """Manifest describing the Kconfig source tree for a repository rule."""
+
+    root: str
+    """Entry-point Kconfig file, relative to srctree."""
+
+    files: list[str]
+    """All Kconfig source files (sorted, deduplicated), relative to srctree."""
+
+    config: NotRequired[str]
+    """Rendered .config filename. Present only when defaults are provided."""
+
+
+def _build_manifest(
     kconf: Any, srctree: Path, *, has_defaults: bool = False
-) -> str:
-    """Render a JSON manifest with root and files list."""
+) -> KconfigManifest:
+    """Build a manifest with root and files list."""
     files: list[str] = []
     for filename in kconf.kconfig_filenames:
         abs_path = Path(filename)
@@ -364,10 +377,10 @@ def _render_manifest_json(
             abs_path = srctree / filename
         rel = abs_path.absolute().relative_to(srctree.absolute())
         files.append(str(PurePosixPath(rel)))
-    manifest: dict[str, Any] = {"root": files[0], "files": files}
+    manifest = KconfigManifest(root=files[0], files=sorted(set(files)))
     if has_defaults:
         manifest["config"] = "rendered.config"
-    return json.dumps(manifest, indent=2) + "\n"
+    return manifest
 
 
 def main() -> None:
@@ -398,8 +411,8 @@ def main() -> None:
     source_cache = read_source_files(kconf, srctree)
     settings = collect_settings(kconf, source_cache, has_defaults=has_defaults)
 
-    manifest_json = _render_manifest_json(kconf, srctree, has_defaults=has_defaults)
-    manifest_data = json.loads(manifest_json)
+    manifest_data = _build_manifest(kconf, srctree, has_defaults=has_defaults)
+    manifest_json = json.dumps(manifest_data, indent=2) + "\n"
 
     args.out_build.write_text(
         _render_build_file(
