@@ -1,10 +1,14 @@
-"""Tests for repository_gen manifest building."""
+"""Tests for repository_gen manifest building and settings rendering."""
 
 import textwrap
 from pathlib import Path
 
-from kconfig.private.kconfig_parser import parse_kconfig
-from kconfig.private.repository_gen import KconfigManifest, _build_manifest
+from kconfig.private.kconfig_parser import KconfigSetting, parse_kconfig
+from kconfig.private.repository_gen import (
+    KconfigManifest,
+    _build_manifest,
+    _render_settings_bzl,
+)
 
 
 def _manifest(
@@ -152,3 +156,53 @@ class TestBuildManifest:
         )
         assert manifest["root"] == "Kconfig"
         assert manifest["files"] == ["Kconfig"]
+
+
+class TestRenderSettingsBzl:
+    """Tests for _render_settings_bzl config_setting target naming."""
+
+    def test_bool_flag_produces_y_and_n_suffixes(self) -> None:
+        """Bool flags emit config_setting targets with _Y and _N suffixes."""
+        settings = [KconfigSetting(name="FOO", rule="bool_flag", default=True)]
+        output = _render_settings_bzl(settings)
+        assert 'name = name + "." + flag.name + "_Y"' in output
+        assert 'name = name + "." + flag.name + "_N"' in output
+
+    def test_bool_flag_no_unsuffixed_target(self) -> None:
+        """Bool flags must not produce an unsuffixed config_setting target."""
+        settings = [KconfigSetting(name="FOO", rule="bool_flag", default=False)]
+        output = _render_settings_bzl(settings)
+        for line in output.splitlines():
+            if "name = name" in line and "flag.name" in line:
+                assert "_Y" in line or "_N" in line or "str(value)" in line
+
+    def test_int_flag_uses_value_suffix(self) -> None:
+        """Int flags emit config_setting targets with _<value> suffixes."""
+        settings = [KconfigSetting(name="COUNT", rule="int_flag", default=42)]
+        output = _render_settings_bzl(settings)
+        assert 'name = name + "." + flag.name + "_" + str(value)' in output
+
+    def test_bool_and_int_same_stem_no_collision(self) -> None:
+        """A bool CONFIG_FOO_1 and int CONFIG_FOO cannot produce the same target name."""
+        settings = [
+            KconfigSetting(name="FOO_1", rule="bool_flag", default=True),
+            KconfigSetting(name="FOO", rule="int_flag", default=1),
+        ]
+        output = _render_settings_bzl(settings)
+        assert 'Label("//:CONFIG_FOO_1")' in output
+        assert 'Label("//:CONFIG_FOO")' in output
+        assert "_Y" in output
+        assert "_N" in output
+
+    def test_labels_excluded_from_rendered_flags(self) -> None:
+        """Settings covered by settings_labels do not appear in flag lists."""
+        settings = [
+            KconfigSetting(name="LABELED", rule="bool_flag", default=True),
+            KconfigSetting(name="UNLABELED", rule="int_flag", default=5),
+        ]
+        output = _render_settings_bzl(
+            settings,
+            settings_labels={"CONFIG_LABELED": "//some:label"},
+        )
+        assert "CONFIG_LABELED" not in output
+        assert 'Label("//:CONFIG_UNLABELED")' in output

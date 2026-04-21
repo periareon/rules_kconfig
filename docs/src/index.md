@@ -61,8 +61,9 @@ The generated repository `@my_kconfig` contains:
 | `@my_kconfig//:CONFIG_FOO`             | `bool_flag` (default `False`)                 |
 | `@my_kconfig//:CONFIG_COUNT`           | `int_flag` (default `3`)                      |
 | `@my_kconfig//:config`                 | `cc_library` providing `config.h`             |
-| `@my_kconfig//settings.CONFIG_FOO`     | `config_setting` matching `CONFIG_FOO = true` |
-| `@my_kconfig//settings.CONFIG_COUNT_3` | `config_setting` matching `CONFIG_COUNT = 3`  |
+| `@my_kconfig//settings.CONFIG_FOO_Y`   | `config_setting` matching `CONFIG_FOO = true`  |
+| `@my_kconfig//settings.CONFIG_FOO_N`   | `config_setting` matching `CONFIG_FOO = false` |
+| `@my_kconfig//settings.CONFIG_COUNT_3` | `config_setting` matching `CONFIG_COUNT = 3`   |
 
 ## Usage
 
@@ -98,9 +99,10 @@ cc_library(
 ### Reacting to flags with `config_setting`
 
 The generated repository includes a `settings/` subpackage with
-`config_setting` targets for every flag. Bool flags produce a single
-target matching `"true"`; int and string flags produce a target matching
-their Kconfig default value (named `CONFIG_<NAME>_<value>`).
+`config_setting` targets for every flag. Bool flags produce two targets:
+`CONFIG_<NAME>_Y` (matching `"true"`) and `CONFIG_<NAME>_N` (matching
+`"false"`). Int and string flags produce a target matching their Kconfig
+default value (named `CONFIG_<NAME>_<value>`).
 
 Use these directly in `select()`:
 
@@ -109,7 +111,7 @@ cc_library(
     name = "mylib",
     srcs = ["mylib.c"],
     deps = select({
-        "@my_kconfig//settings:kconfig.CONFIG_FOO": ["//extras:foo_support"],
+        "@my_kconfig//settings:kconfig.CONFIG_FOO_Y": ["//extras:foo_support"],
         "//conditions:default": [],
     }),
 )

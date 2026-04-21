@@ -36,7 +36,7 @@ cc_test(
     srcs = ["test_config_settings.c"],
     local_defines =
         select({
-            ":settings.CONFIG_FOO": ["FOO_MATCHED"],
+            ":settings.CONFIG_FOO_Y": ["FOO_MATCHED"],
             "//conditions:default": [],
         }) +
         select({
