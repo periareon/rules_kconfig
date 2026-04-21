@@ -27,6 +27,12 @@ py_binary(
 )
 
 py_pytest_test(
+    name = "repository_gen_test",
+    srcs = ["repository_gen_test.py"],
+    deps = [":repository_gen"],
+)
+
+py_pytest_test(
     name = "kconfig_parser_test",
     srcs = ["kconfig_parser_test.py"],
     deps = [":kconfig_parser"],
