@@ -124,3 +124,31 @@ class TestBuildManifest:
         """,
         )
         assert "a/b/Kconfig" in manifest["files"]
+
+    def test_shell_default_does_not_break_parsing(self, tmp_path: Path) -> None:
+        """A bool with an invalid $(shell,...) default still produces a valid manifest."""
+        manifest = _manifest(
+            tmp_path,
+            """\
+            config FOO
+                bool "Enable FOO"
+                default $(shell, exit 1)
+                help
+                Example boolean option.
+
+            config COUNT
+                int "Count"
+                default $(shell, exit 1)
+                help
+                Example integer option.
+
+            config LABEL
+                string "Label"
+                default $(shell, exit 1)
+                help
+                Example string option.
+
+        """,
+        )
+        assert manifest["root"] == "Kconfig"
+        assert manifest["files"] == ["Kconfig"]

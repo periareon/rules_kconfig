@@ -61,6 +61,9 @@ build:strict --config=isort
 build:strict --config=pylint
 build:strict --config=mypy
 
+# Enable all linters and formatters
+test --config=strict
+
 ###############################################################################
 ## Custom user flags
 ##

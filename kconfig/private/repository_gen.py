@@ -313,7 +313,9 @@ def _render_build_file(
         f'        "CONFIG_{s.name}": "{_default_as_string(s)}",' for s in settings
     )
     parts.append("")
-    parts.append(_AUTOCONF_TEMPLATE.format(settings=settings_str, defaults=defaults_str))
+    parts.append(
+        _AUTOCONF_TEMPLATE.format(settings=settings_str, defaults=defaults_str)
+    )
 
     parts.append("")
     parts.append(_KCONFIG_LIBRARY_TEMPLATE.format(root=root_file))
@@ -336,12 +338,8 @@ def _render_settings_bzl(settings: list[KconfigSetting]) -> str:
     bool_flags = [s for s in settings if s.rule == "bool_flag"]
     other_flags = [s for s in settings if s.rule != "bool_flag"]
 
-    bool_lines = "\n".join(
-        f'    Label("//:CONFIG_{s.name}"),' for s in bool_flags
-    )
-    other_lines = "\n".join(
-        f'    Label("//:CONFIG_{s.name}"),' for s in other_flags
-    )
+    bool_lines = "\n".join(f'    Label("//:CONFIG_{s.name}"),' for s in bool_flags)
+    other_lines = "\n".join(f'    Label("//:CONFIG_{s.name}"),' for s in other_flags)
     default_lines = "\n".join(
         f'    "CONFIG_{s.name}": "{_default_as_string(s)}",' for s in other_flags
     )
@@ -433,7 +431,8 @@ def main() -> None:
     settings_options: dict[str, list[str]] = json.loads(args.settings_options)
     if settings_options:
         options_lines = "\n".join(
-            f'        "{k}": {json.dumps(v)},' for k, v in sorted(settings_options.items())
+            f'        "{k}": {json.dumps(v)},'
+            for k, v in sorted(settings_options.items())
         )
         options_str = f"\n    options = {{\n{options_lines}\n    }},"
     else:
