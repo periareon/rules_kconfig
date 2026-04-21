@@ -262,7 +262,7 @@ simply skipped.</p>
     name = "my_kconfig",
     kconfig = "//:Kconfig",
     defaults = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python3_host//:python",
 )
 </code></pre>
 <p>If any Kconfig symbol uses <code>$(shell,...)</code> for its default and is not
@@ -282,6 +282,53 @@ menuconfig(
 <pre><code class="language-bash">bazel run //:menuconfig
 </code></pre>
 <p>The TUI reads and writes the <code>.config</code> file in your workspace root.</p>
+<h2 id="build-time-values-with-settings_labels"><a class="header" href="#build-time-values-with-settings_labels">Build-time values with <code>settings_labels</code></a></h2>
+<p>Some Kconfig symbols derive their default from the build environment
+using <code>$(shell,...)</code> macros — for example, a compiler version obtained
+from the active toolchain:</p>
+<pre><code class="language-text">config CLANG_VERSION
+    int
+    default $(shell,$(srctree)/scripts/clang-version.sh $(CC))
+</code></pre>
+<p>These values cannot be resolved at repository-rule time. Use
+<code>settings_labels</code> to replace a generated flag with a user-provided rule
+that supplies the value during the build:</p>
+<pre><code class="language-python">kconfig.repo(
+    name = "my_kconfig",
+    kconfig = "//:Kconfig",
+    interpreter = "@python3_host//:python",
+    settings_labels = {
+        "//:clang_version": "CONFIG_CLANG_VERSION",
+    },
+)
+</code></pre>
+<p>The label must point to a target that provides <code>BuildSettingInfo</code>. Since
+Bazel does not allow <code>build_setting</code> rules to resolve toolchains
+(<a href="https://github.com/bazelbuild/bazel/issues/21545">bazelbuild/bazel#21545</a>),
+write a regular rule instead:</p>
+<pre><code class="language-python">load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+
+def _clang_version_impl(ctx):
+    cc_toolchain = ctx.toolchains["@rules_cc//cc:toolchain_type"]
+    # ... compute version from toolchain ...
+    return [BuildSettingInfo(value = version)]
+
+clang_version = rule(
+    implementation = _clang_version_impl,
+    toolchains = ["@rules_cc//cc:toolchain_type"],
+)
+</code></pre>
+<p>Settings provided via <code>settings_labels</code>:</p>
+<ul>
+<li>appear in the generated <code>config.h</code> with the correct value,</li>
+<li>are excluded from <code>config_setting</code> generation (they are not flags, so
+<code>flag_values</code> cannot reference them),</li>
+<li>cannot be set from the command line,</li>
+<li>are skipped by <code>kconfig.overrides</code> transitions — the value always
+comes from the user-provided rule.</li>
+</ul>
+<p>See <a href="../../examples/settings_labels/"><code>examples/settings_labels/</code></a> for a
+complete working example including an overrides layer.</p>
 <h2 id="overriding-configuration-on-external-repositories"><a class="header" href="#overriding-configuration-on-external-repositories">Overriding configuration on external repositories</a></h2>
 <p>When a kconfig repository is declared by an external dependency, use
 <code>kconfig.overrides</code> to overlay your own <code>.config</code> without modifying the
@@ -292,7 +339,7 @@ kconfig.overrides(
     name = "my_board_config",
     kconfig = "@ext_kconfig//:ext_kconfig",
     config = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python3_host//:python",
 )
 use_repo(kconfig, "my_board_config")
 </code></pre>

@@ -263,7 +263,7 @@ simply skipped.</p>
     name = "my_kconfig",
     kconfig = "//:Kconfig",
     defaults = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python3_host//:python",
 )
 </code></pre>
 <p>If any Kconfig symbol uses <code>$(shell,...)</code> for its default and is not
@@ -283,6 +283,53 @@ menuconfig(
 <pre><code class="language-bash">bazel run //:menuconfig
 </code></pre>
 <p>The TUI reads and writes the <code>.config</code> file in your workspace root.</p>
+<h2 id="build-time-values-with-settings_labels"><a class="header" href="#build-time-values-with-settings_labels">Build-time values with <code>settings_labels</code></a></h2>
+<p>Some Kconfig symbols derive their default from the build environment
+using <code>$(shell,...)</code> macros — for example, a compiler version obtained
+from the active toolchain:</p>
+<pre><code class="language-text">config CLANG_VERSION
+    int
+    default $(shell,$(srctree)/scripts/clang-version.sh $(CC))
+</code></pre>
+<p>These values cannot be resolved at repository-rule time. Use
+<code>settings_labels</code> to replace a generated flag with a user-provided rule
+that supplies the value during the build:</p>
+<pre><code class="language-python">kconfig.repo(
+    name = "my_kconfig",
+    kconfig = "//:Kconfig",
+    interpreter = "@python3_host//:python",
+    settings_labels = {
+        "//:clang_version": "CONFIG_CLANG_VERSION",
+    },
+)
+</code></pre>
+<p>The label must point to a target that provides <code>BuildSettingInfo</code>. Since
+Bazel does not allow <code>build_setting</code> rules to resolve toolchains
+(<a href="https://github.com/bazelbuild/bazel/issues/21545">bazelbuild/bazel#21545</a>),
+write a regular rule instead:</p>
+<pre><code class="language-python">load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+
+def _clang_version_impl(ctx):
+    cc_toolchain = ctx.toolchains["@rules_cc//cc:toolchain_type"]
+    # ... compute version from toolchain ...
+    return [BuildSettingInfo(value = version)]
+
+clang_version = rule(
+    implementation = _clang_version_impl,
+    toolchains = ["@rules_cc//cc:toolchain_type"],
+)
+</code></pre>
+<p>Settings provided via <code>settings_labels</code>:</p>
+<ul>
+<li>appear in the generated <code>config.h</code> with the correct value,</li>
+<li>are excluded from <code>config_setting</code> generation (they are not flags, so
+<code>flag_values</code> cannot reference them),</li>
+<li>cannot be set from the command line,</li>
+<li>are skipped by <code>kconfig.overrides</code> transitions — the value always
+comes from the user-provided rule.</li>
+</ul>
+<p>See <a href="../../examples/settings_labels/"><code>examples/settings_labels/</code></a> for a
+complete working example including an overrides layer.</p>
 <h2 id="overriding-configuration-on-external-repositories"><a class="header" href="#overriding-configuration-on-external-repositories">Overriding configuration on external repositories</a></h2>
 <p>When a kconfig repository is declared by an external dependency, use
 <code>kconfig.overrides</code> to overlay your own <code>.config</code> without modifying the
@@ -293,7 +340,7 @@ kconfig.overrides(
     name = "my_board_config",
     kconfig = "@ext_kconfig//:ext_kconfig",
     config = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python3_host//:python",
 )
 use_repo(kconfig, "my_board_config")
 </code></pre>
@@ -482,7 +529,7 @@ with_kconfig_overrides(
 load("@rules_kconfig//kconfig:defs.bzl", "kconfig_repository")
 
 kconfig_repository(<a href="rules.html#kconfig_repository-name">name</a>, <a href="rules.html#kconfig_repository-apparent_name">apparent_name</a>, <a href="rules.html#kconfig_repository-defaults">defaults</a>, <a href="rules.html#kconfig_repository-interpreter">interpreter</a>, <a href="rules.html#kconfig_repository-kconfig">kconfig</a>, <a href="rules.html#kconfig_repository-kconfiglib_anchor">kconfiglib_anchor</a>,
-                   <a href="rules.html#kconfig_repository-settings_options">settings_options</a>)
+                   <a href="rules.html#kconfig_repository-settings_labels">settings_labels</a>, <a href="rules.html#kconfig_repository-settings_options">settings_options</a>)
 </pre>
 <p>Parse a Kconfig file tree and generate a Bazel repository with build settings.</p>
 <p>The generated repository contains a <code>bool_flag</code>, <code>int_flag</code>, or <code>string_flag</code>
@@ -503,6 +550,7 @@ directly.</p>
 <tr><td style="text-align: left"><a id="kconfig_repository-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfiglib_anchor"></a>kconfiglib_anchor</td><td style="text-align: left">Label used to locate the <code>kconfiglib</code> package. Managed by the module extension.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-settings_labels"></a>settings_labels</td><td style="text-align: left">Map of <code>CONFIG_*</code> names to label strings for user-provided rules that replace generated flags. The label must point to a target that provides BuildSettingInfo. Use this for symbols whose values depend on the build configuration (e.g. toolchain-derived values like compiler version).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 </tbody></table>
 </div>
@@ -511,7 +559,7 @@ directly.</p>
 <pre>
 kconfig = use_extension("@rules_kconfig//kconfig:defs.bzl", "kconfig")
 kconfig.overrides(<a href="rules.html#kconfig.overrides-name">name</a>, <a href="rules.html#kconfig.overrides-config">config</a>, <a href="rules.html#kconfig.overrides-interpreter">interpreter</a>, <a href="rules.html#kconfig.overrides-kconfig">kconfig</a>)
-kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.html#kconfig.repo-defaults">defaults</a>, <a href="rules.html#kconfig.repo-interpreter">interpreter</a>, <a href="rules.html#kconfig.repo-kconfig">kconfig</a>, <a href="rules.html#kconfig.repo-settings_options">settings_options</a>)
+kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.html#kconfig.repo-defaults">defaults</a>, <a href="rules.html#kconfig.repo-interpreter">interpreter</a>, <a href="rules.html#kconfig.repo-kconfig">kconfig</a>, <a href="rules.html#kconfig.repo-settings_labels">settings_labels</a>, <a href="rules.html#kconfig.repo-settings_options">settings_options</a>)
 </pre>
 <p>Configure kconfig repositories.</p>
 <p><strong>TAG CLASSES</strong></p>
@@ -535,6 +583,7 @@ kconfig.repo(<a href="rules.html#kconfig.repo-name">name</a>, <a href="rules.htm
 <tr><td style="text-align: left"><a id="kconfig.repo-defaults"></a>defaults</td><td style="text-align: left">Optional .config file providing default overrides for Kconfig symbols.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser (e.g. <code>@python_3_12_host//:python</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-settings_labels"></a>settings_labels</td><td style="text-align: left">Map of user-provided rule labels to CONFIG_* names they replace. Each label must point to a target that provides BuildSettingInfo. Use this for symbols whose values depend on the build configuration (e.g. toolchain-derived values like compiler version).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 </tbody></table>
 </div>

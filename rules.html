@@ -329,7 +329,7 @@ with_kconfig_overrides(
 load("@rules_kconfig//kconfig:defs.bzl", "kconfig_repository")
 
 kconfig_repository(<a href="#kconfig_repository-name">name</a>, <a href="#kconfig_repository-apparent_name">apparent_name</a>, <a href="#kconfig_repository-defaults">defaults</a>, <a href="#kconfig_repository-interpreter">interpreter</a>, <a href="#kconfig_repository-kconfig">kconfig</a>, <a href="#kconfig_repository-kconfiglib_anchor">kconfiglib_anchor</a>,
-                   <a href="#kconfig_repository-settings_options">settings_options</a>)
+                   <a href="#kconfig_repository-settings_labels">settings_labels</a>, <a href="#kconfig_repository-settings_options">settings_options</a>)
 </pre>
 <p>Parse a Kconfig file tree and generate a Bazel repository with build settings.</p>
 <p>The generated repository contains a <code>bool_flag</code>, <code>int_flag</code>, or <code>string_flag</code>
@@ -350,6 +350,7 @@ directly.</p>
 <tr><td style="text-align: left"><a id="kconfig_repository-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfiglib_anchor"></a>kconfiglib_anchor</td><td style="text-align: left">Label used to locate the <code>kconfiglib</code> package. Managed by the module extension.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-settings_labels"></a>settings_labels</td><td style="text-align: left">Map of <code>CONFIG_*</code> names to label strings for user-provided rules that replace generated flags. The label must point to a target that provides BuildSettingInfo. Use this for symbols whose values depend on the build configuration (e.g. toolchain-derived values like compiler version).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 </tbody></table>
 </div>
@@ -358,7 +359,7 @@ directly.</p>
 <pre>
 kconfig = use_extension("@rules_kconfig//kconfig:defs.bzl", "kconfig")
 kconfig.overrides(<a href="#kconfig.overrides-name">name</a>, <a href="#kconfig.overrides-config">config</a>, <a href="#kconfig.overrides-interpreter">interpreter</a>, <a href="#kconfig.overrides-kconfig">kconfig</a>)
-kconfig.repo(<a href="#kconfig.repo-name">name</a>, <a href="#kconfig.repo-defaults">defaults</a>, <a href="#kconfig.repo-interpreter">interpreter</a>, <a href="#kconfig.repo-kconfig">kconfig</a>, <a href="#kconfig.repo-settings_options">settings_options</a>)
+kconfig.repo(<a href="#kconfig.repo-name">name</a>, <a href="#kconfig.repo-defaults">defaults</a>, <a href="#kconfig.repo-interpreter">interpreter</a>, <a href="#kconfig.repo-kconfig">kconfig</a>, <a href="#kconfig.repo-settings_labels">settings_labels</a>, <a href="#kconfig.repo-settings_options">settings_options</a>)
 </pre>
 <p>Configure kconfig repositories.</p>
 <p><strong>TAG CLASSES</strong></p>
@@ -382,6 +383,7 @@ kconfig.repo(<a href="#kconfig.repo-name">name</a>, <a href="#kconfig.repo-defau
 <tr><td style="text-align: left"><a id="kconfig.repo-defaults"></a>defaults</td><td style="text-align: left">Optional .config file providing default overrides for Kconfig symbols.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-interpreter"></a>interpreter</td><td style="text-align: left">A Python interpreter target used to run the Kconfig parser (e.g. <code>@python_3_12_host//:python</code>).</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-settings_labels"></a>settings_labels</td><td style="text-align: left">Map of user-provided rule labels to CONFIG_* names they replace. Each label must point to a target that provides BuildSettingInfo. Use this for symbols whose values depend on the build configuration (e.g. toolchain-derived values like compiler version).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 </tbody></table>
 </div>
