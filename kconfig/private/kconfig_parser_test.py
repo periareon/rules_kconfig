@@ -258,6 +258,32 @@ class TestShellTaintedDefaults:
         assert settings[0].name == "ARCH"
         assert settings[0].default == ""
 
+    def test_ok_when_shell_tainted_in_labeled_symbols(self, tmp_path: Path) -> None:
+        """A shell-tainted symbol listed in labeled_symbols is exempt from the error."""
+        kconfig_file = tmp_path / "Kconfig"
+        kconfig_file.write_text(textwrap.dedent("""\
+            config ARCH
+                string "Architecture"
+                default "$(shell,uname -m)"
+        """))
+
+        kconf = parse_kconfig(kconfig_file, tmp_path)
+        source_cache = read_source_files(kconf, tmp_path)
+
+        dotconfig = tmp_path / ".config"
+        dotconfig.write_text("")
+        kconf.load_config(str(dotconfig))
+
+        settings = collect_settings(
+            kconf,
+            source_cache,
+            has_defaults=True,
+            labeled_symbols={"CONFIG_ARCH"},
+        )
+
+        assert len(settings) == 1
+        assert settings[0].name == "ARCH"
+
 
 class TestShellTainted:
     """Symbols with ``$(shell,...)`` defaults fall back to the falsey value."""

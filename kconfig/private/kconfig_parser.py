@@ -162,6 +162,7 @@ def collect_settings(
     source_cache: dict[str, list[str]],
     *,
     has_defaults: bool = False,
+    labeled_symbols: set[str] | None = None,
 ) -> list[KconfigSetting]:
     """Parse a Kconfig object into a list of :class:`KconfigSetting` entries.
 
@@ -170,8 +171,11 @@ def collect_settings(
 
     When *has_defaults* is ``True``, the caller has already loaded a
     ``.config`` via ``kconf.load_config``.  Shell-tainted symbols that
-    were **not** explicitly set in that file cause a hard error.
+    were **not** explicitly set in that file cause a hard error, unless
+    they appear in *labeled_symbols* (symbols handled by ``settings_labels``).
     """
+    if labeled_symbols is None:
+        labeled_symbols = set()
     errors: list[str] = []
     result: list[KconfigSetting] = []
     for sym in kconf.unique_defined_syms:
@@ -182,7 +186,12 @@ def collect_settings(
 
         shell_tainted = _is_shell_tainted(sym, source_cache)
 
-        if shell_tainted and has_defaults and sym.user_value is None:
+        if (
+            shell_tainted
+            and has_defaults
+            and sym.user_value is None
+            and f"CONFIG_{sym.name}" not in labeled_symbols
+        ):
             errors.append(
                 "CONFIG_{name} uses $(shell,...) for its default but is not "
                 "explicitly set in the defaults file. Run menuconfig or add "
