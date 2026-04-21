@@ -130,24 +130,31 @@ _DEFAULTS = {{
 {defaults}
 }}
 
-def kconfig_config_settings(name, options = {{}}, visibility = None):
+def kconfig_config_settings(*, name, options = {{}}, visibility = None):
     \"\"\"Generate config_setting targets for kconfig flags.
 
-    Bool flags always produce a config_setting matching ``"true"``.
-    Non-bool flags use values from *options*, falling back to their
-    Kconfig default when not specified.  Flags with neither are skipped.
+    Bool flags produce two config_settings: ``{{name}}.{{CONFIG_*}}_Y``
+    (matching ``"true"``) and ``{{name}}.{{CONFIG_*}}_N`` (matching
+    ``"false"``).  Non-bool flags use values from *options*, falling
+    back to their Kconfig default when not specified, producing targets
+    named ``{{name}}.{{CONFIG_*}}_{{value}}``.  Flags with neither are
+    skipped.
 
     Args:
-        name: Prefix for generated target names.  Each target is named
-            ``{{name}}.{{CONFIG_*}}``.
+        name: Prefix for generated target names.
         options: Dict mapping ``CONFIG_*`` names to lists of string
             values.  Each value produces a separate ``config_setting``.
         visibility: Visibility for generated targets.
     \"\"\"
     for flag in _BOOL_FLAGS:
         native.config_setting(
-            name = name + "." + flag.name,
+            name = name + "." + flag.name + "_Y",
             flag_values = {{flag: "true"}},
+            visibility = visibility,
+        )
+        native.config_setting(
+            name = name + "." + flag.name + "_N",
+            flag_values = {{flag: "false"}},
             visibility = visibility,
         )
 
