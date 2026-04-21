@@ -1,0 +1,28 @@
+# Demonstrates setting_labels: replacing a shell-tainted Kconfig symbol
+# with a user-provided rule that supplies the value at build time.
+#
+# CONFIG_VERSION uses $(shell,...) in Kconfig and cannot be resolved at
+# repository-rule time.  The setting_labels parameter in MODULE.bazel
+# maps it to //:version_setting, which provides the value via
+# BuildSettingInfo.
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load(":build_defs.bzl", "fixed_int_setting")
+
+fixed_int_setting(
+    name = "version_setting",
+    value = 42,
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "test_setting_labels",
+    srcs = ["test_setting_labels.c"],
+    deps = ["@setting_labels_kconfig//:config"],
+)
+
+cc_test(
+    name = "test_overrides",
+    srcs = ["test_overrides.c"],
+    deps = ["@setting_labels_overrides//:config"],
+)

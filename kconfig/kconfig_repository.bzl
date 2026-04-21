@@ -65,6 +65,9 @@ def _kconfig_repository_impl(repository_ctx):
     if repository_ctx.attr.settings_options:
         cmd.extend(["--settings_options", json.encode(repository_ctx.attr.settings_options)])
 
+    if repository_ctx.attr.settings_labels:
+        cmd.extend(["--settings_labels", json.encode(repository_ctx.attr.settings_labels)])
+
     rules_root = _rules_kconfig_root(repository_ctx)
     path_sep = ";" if "windows" in repository_ctx.os.name.lower() else ":"
     result = repository_ctx.execute(
@@ -123,6 +126,15 @@ directly.
         "kconfiglib_anchor": attr.label(
             doc = "Label used to locate the `kconfiglib` package. Managed by the module extension.",
             mandatory = True,
+        ),
+        "settings_labels": attr.string_dict(
+            doc = """\
+Map of `CONFIG_*` names to label strings for user-provided rules that replace
+generated flags. The label must point to a target that provides
+BuildSettingInfo. Use this for symbols whose values depend on the build
+configuration (e.g. toolchain-derived values like compiler version).
+""",
+            default = {},
         ),
         "settings_options": attr.string_list_dict(
             doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",

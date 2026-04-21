@@ -147,7 +147,7 @@ kconfig.repo(
     name = "my_kconfig",
     kconfig = "//:Kconfig",
     defaults = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python3_host//:python",
 )
 ```
 
@@ -177,6 +177,65 @@ bazel run //:menuconfig
 
 The TUI reads and writes the `.config` file in your workspace root.
 
+## Build-time values with `settings_labels`
+
+Some Kconfig symbols derive their default from the build environment
+using `$(shell,...)` macros — for example, a compiler version obtained
+from the active toolchain:
+
+```text
+config CLANG_VERSION
+    int
+    default $(shell,$(srctree)/scripts/clang-version.sh $(CC))
+```
+
+These values cannot be resolved at repository-rule time. Use
+`settings_labels` to replace a generated flag with a user-provided rule
+that supplies the value during the build:
+
+```python
+kconfig.repo(
+    name = "my_kconfig",
+    kconfig = "//:Kconfig",
+    interpreter = "@python3_host//:python",
+    settings_labels = {
+        "//:clang_version": "CONFIG_CLANG_VERSION",
+    },
+)
+```
+
+The label must point to a target that provides `BuildSettingInfo`. Since
+Bazel does not allow `build_setting` rules to resolve toolchains
+([bazelbuild/bazel#21545](https://github.com/bazelbuild/bazel/issues/21545)),
+write a regular rule instead:
+
+```python
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+
+def _clang_version_impl(ctx):
+    cc_toolchain = ctx.toolchains["@rules_cc//cc:toolchain_type"]
+    # ... compute version from toolchain ...
+    return [BuildSettingInfo(value = version)]
+
+clang_version = rule(
+    implementation = _clang_version_impl,
+    toolchains = ["@rules_cc//cc:toolchain_type"],
+)
+```
+
+Settings provided via `settings_labels`:
+
+- appear in the generated `config.h` with the correct value,
+- are excluded from `config_setting` generation (they are not flags, so
+  `flag_values` cannot reference them),
+- cannot be set from the command line,
+- are skipped by `kconfig.overrides` transitions — the value always
+  comes from the user-provided rule.
+
+See [`examples/settings_labels/`](../../examples/settings_labels/) for a
+complete working example including an overrides layer.
+
+
 ## Overriding configuration on external repositories
 
 When a kconfig repository is declared by an external dependency, use
@@ -190,7 +249,7 @@ kconfig.overrides(
     name = "my_board_config",
     kconfig = "@ext_kconfig//:ext_kconfig",
     config = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python3_host//:python",
 )
 use_repo(kconfig, "my_board_config")
 ```

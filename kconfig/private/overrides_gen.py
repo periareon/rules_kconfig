@@ -7,6 +7,7 @@ then delegates transition and rule creation to
 """
 
 import argparse
+import json
 import logging
 from pathlib import Path
 from typing import Union
@@ -141,6 +142,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output path for the fully resolved .config file.",
     )
+    parser.add_argument(
+        "--settings_labels",
+        type=str,
+        default="{}",
+        help="JSON-encoded dict of CONFIG_* names with user-provided labels (skipped in transitions).",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
@@ -195,8 +202,12 @@ def main() -> None:
     source_cache = read_source_files(kconf, srctree)
     original_settings = collect_settings(kconf, source_cache, has_defaults=has_base_config)
 
+    labeled: set[str] = set(json.loads(args.settings_labels))
+
     original_defaults: dict[str, str] = {}
     for s in original_settings:
+        if f"CONFIG_{s.name}" in labeled:
+            continue
         flag_label = "{repo}//:CONFIG_{name}".format(repo=args.kconfig_repo, name=s.name)
         original_defaults[flag_label] = _starlark_literal(s.default)
 
@@ -208,6 +219,8 @@ def main() -> None:
     overrides: dict[str, str] = {}
     override_by_name = {s.name: s for s in override_settings}
     for s in original_settings:
+        if f"CONFIG_{s.name}" in labeled:
+            continue
         override_s = override_by_name.get(s.name)
         if override_s and override_s.default != s.default:
             flag_label = "{repo}//:CONFIG_{name}".format(repo=args.kconfig_repo, name=s.name)
