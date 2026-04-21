@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 
 import kconfiglib  # type: ignore[import-untyped]
 
@@ -42,8 +42,6 @@ _KCONFIG_BLOCK_STARTERS = frozenset(
     }
 )
 
-log = logging.getLogger(__name__)
-
 
 @dataclasses.dataclass(frozen=True)
 class KconfigSetting:
@@ -59,13 +57,37 @@ class KconfigSetting:
     """Python-native default value for the build setting."""
 
 
+_orig_shell_fn = kconfiglib._shell_fn  # pylint: disable=protected-access
+
+
+def _soft_shell_fn(kconf: kconfiglib.Kconfig, name: str, command: str) -> Any:
+    """Wrapper around kconfiglib's `$(shell,...)` that returns a safe fallback on failure."""
+    try:
+        result = _orig_shell_fn(kconf, name, command)
+        if result:
+            return result
+    except Exception as exc:
+        print(type(exc))
+        raise
+
+    # Return "n" so unquoted $(shell,...) in bool/tristate defaults tokenizes validly.
+    # The actual value is irrelevant — _is_shell_tainted detects these and assigns
+    # a type-appropriate fallback.
+    return "n"
+
+
 def parse_kconfig(kconfig_path: Path, srctree: Path) -> kconfiglib.Kconfig:
     """Parse a Kconfig file tree and return the kconfiglib object.
 
     Handles the cwd/srctree dance that kconfiglib requires.
+    Shell macros that fail or return empty are replaced with a safe placeholder
+    so parsing succeeds on all platforms.
     """
     prev_dir = os.getcwd()
     os.chdir(srctree)
+
+    # pylint: disable=protected-access
+    kconfiglib._shell_fn = _soft_shell_fn
     try:
         os.environ["srctree"] = str(srctree)
         return kconfiglib.Kconfig(
@@ -74,6 +96,7 @@ def parse_kconfig(kconfig_path: Path, srctree: Path) -> kconfiglib.Kconfig:
             warn_to_stderr=False,
         )
     finally:
+        kconfiglib._shell_fn = _orig_shell_fn
         os.chdir(prev_dir)
 
 
@@ -89,7 +112,7 @@ def read_source_files(kconf: kconfiglib.Kconfig, srctree: Path) -> dict[str, lis
                 abs_path.absolute().read_text(encoding="utf-8").splitlines()
             )
         except OSError:
-            log.warning("Could not read Kconfig source: %s", abs_path)
+            logging.warning("Could not read Kconfig source: %s", abs_path)
     return cache
 
 
@@ -154,7 +177,7 @@ def collect_settings(
     for sym in kconf.unique_defined_syms:
         rule = _TYPE_MAP.get(sym.orig_type)
         if not rule:
-            log.debug("Skipping symbol %s (type %s)", sym.name, sym.orig_type)
+            logging.debug("Skipping symbol %s (type %s)", sym.name, sym.orig_type)
             continue
 
         shell_tainted = _is_shell_tainted(sym, source_cache)
@@ -168,7 +191,9 @@ def collect_settings(
 
         if shell_tainted:
             default = _FALSEY_PYTHON_DEFAULTS[rule]
-            log.info("CONFIG_%s uses $(shell,...); defaulting to %s", sym.name, default)
+            logging.info(
+                "CONFIG_%s uses $(shell,...); defaulting to %s", sym.name, default
+            )
         else:
             default = python_default(sym, rule)
 
