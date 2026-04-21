@@ -455,9 +455,13 @@ def main() -> None:
         kconf.load_config(str(defaults_path))
 
     source_cache = read_source_files(kconf, srctree)
-    settings = collect_settings(kconf, source_cache, has_defaults=has_defaults)
-
     settings_labels: dict[str, str] = json.loads(args.settings_labels)
+    settings = collect_settings(
+        kconf,
+        source_cache,
+        has_defaults=has_defaults,
+        labeled_symbols=set(settings_labels),
+    )
 
     manifest_data = _build_manifest(
         kconf, srctree, has_defaults=has_defaults, settings_labels=settings_labels

@@ -200,9 +200,9 @@ def main() -> None:
         kconf.load_config(str(base_config_path))
 
     source_cache = read_source_files(kconf, srctree)
-    original_settings = collect_settings(kconf, source_cache, has_defaults=has_base_config)
-
     labeled: set[str] = set(json.loads(args.settings_labels))
+
+    original_settings = collect_settings(kconf, source_cache, has_defaults=has_base_config, labeled_symbols=labeled)
 
     original_defaults: dict[str, str] = {}
     for s in original_settings:
@@ -214,7 +214,7 @@ def main() -> None:
     log.info("Loading overrides from %s", config_path)
     kconf.load_config(str(config_path))
 
-    override_settings = collect_settings(kconf, source_cache, has_defaults=True)
+    override_settings = collect_settings(kconf, source_cache, has_defaults=True, labeled_symbols=labeled)
 
     overrides: dict[str, str] = {}
     override_by_name = {s.name: s for s in override_settings}
