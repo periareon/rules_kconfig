@@ -1,0 +1,17 @@
+# Kconfig demonstrating setting_labels for shell-tainted symbols.
+
+mainmenu "Setting Labels example"
+
+config ENABLED
+	bool "Enable feature"
+	default n
+	help
+	  Example boolean option.
+
+config VERSION
+	int
+	default $(shell,echo 99)
+	help
+	  Version derived from the build environment.
+	  The $(shell,...) default cannot be resolved at repository-rule
+	  time; use setting_labels to supply the value from a custom rule.

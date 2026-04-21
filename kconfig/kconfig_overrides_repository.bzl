@@ -62,6 +62,10 @@ def _kconfig_overrides_repository_impl(repository_ctx):
         repository_ctx.watch(base_config_path)
         cmd.extend(["--base_config", base_config_path])
 
+    base_settings_labels = manifest.get("settings_labels")
+    if base_settings_labels:
+        cmd.extend(["--settings_labels", json.encode(base_settings_labels)])
+
     rules_root = _rules_kconfig_root(repository_ctx)
     path_sep = ";" if "windows" in repository_ctx.os.name.lower() else ":"
     result = repository_ctx.execute(

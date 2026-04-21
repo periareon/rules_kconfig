@@ -22,6 +22,15 @@ _LOAD = tag_class(
             doc = "The name of the generated repository. Symbols are accessible as `@<name>//:CONFIG_<symbol>`.",
             mandatory = True,
         ),
+        "settings_labels": attr.label_keyed_string_dict(
+            doc = """\
+Map of user-provided rule labels to CONFIG_* names they replace. Each label
+must point to a target that provides BuildSettingInfo. Use this for symbols
+whose values depend on the build configuration (e.g. toolchain-derived values
+like compiler version).
+""",
+            default = {},
+        ),
         "settings_options": attr.string_list_dict(
             doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
             default = {},
@@ -58,6 +67,8 @@ def _kconfig_impl(module_ctx):
 
     for module in module_ctx.modules:
         for tag in getattr(module.tags, "repo", []):
+            settings_labels = {v: str(k) for k, v in tag.settings_labels.items()}
+
             kconfig_repository(
                 name = tag.name,
                 apparent_name = tag.name,
@@ -65,6 +76,7 @@ def _kconfig_impl(module_ctx):
                 kconfig = tag.kconfig,
                 kconfiglib_anchor = "@kconfiglib//:BUILD.bazel",
                 interpreter = tag.interpreter,
+                settings_labels = settings_labels,
                 settings_options = tag.settings_options,
             )
 

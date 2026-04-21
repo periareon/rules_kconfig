@@ -65,6 +65,7 @@ jobs:
         example:
           - simple
           - overrides
+          - settings_labels
     steps:
       # Checkout the code
       - uses: actions/checkout@v4

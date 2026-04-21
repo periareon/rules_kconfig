@@ -25,6 +25,18 @@ _FLAG_TEMPLATE = """\
 )
 """
 
+_SETTING_ALIAS_LOAD = """\
+load("@rules_kconfig//kconfig/private:kconfig_setting_alias.bzl", "kconfig_setting_alias")
+"""
+
+_SETTING_ALIAS_TEMPLATE = """\
+kconfig_setting_alias(
+    name = "CONFIG_{name}",
+    actual = "{label}",
+    visibility = ["//visibility:public"],
+)
+"""
+
 _AUTOCONF_TEMPLATE = """\
 load("@rules_kconfig//kconfig/private:kconfig_autoconf.bzl", "kconfig_autoconf")
 load("@rules_kconfig//kconfig/private:kconfig_savedefconfig.bzl", "kconfig_savedefconfig")
@@ -236,6 +248,12 @@ def parse_args() -> argparse.Namespace:
         help="The output location of the generated settings/BUILD.bazel file.",
     )
     parser.add_argument(
+        "--settings_labels",
+        type=str,
+        default="{}",
+        help="JSON-encoded dict mapping CONFIG_* names to label strings for user-provided rules.",
+    )
+    parser.add_argument(
         "--settings_options",
         type=str,
         default="{}",
@@ -272,11 +290,12 @@ def _default_as_string(setting: KconfigSetting) -> str:
     return val.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _render_build_file(
+def _render_build_file(  # pylint: disable=too-many-arguments
     settings: list[KconfigSetting],
     *,
     repo_name: str,
     root_file: str,
+    settings_labels: dict[str, str] | None = None,
     has_rendered_config: bool = False,
     config_ws_path: str | None = None,
 ) -> str:
@@ -284,12 +303,21 @@ def _render_build_file(
     if not settings:
         return "# No Kconfig symbols found.\n"
 
-    needed_rules = sorted({s.rule for s in settings})
-    parts = [
-        _BUILD_HEADER_TEMPLATE.format(
-            rules=", ".join(f'"{r}"' for r in needed_rules),
+    labels = settings_labels or {}
+    parts: list[str] = []
+
+    needed_rules = sorted(
+        {s.rule for s in settings if f"CONFIG_{s.name}" not in labels}
+    )
+    if needed_rules:
+        parts.append(
+            _BUILD_HEADER_TEMPLATE.format(
+                rules=", ".join(f'"{r}"' for r in needed_rules),
+            )
         )
-    ]
+
+    if labels:
+        parts.append(_SETTING_ALIAS_LOAD)
 
     exported = [repo_name, "kconfig.manifest.json"]
     if has_rendered_config:
@@ -299,14 +327,18 @@ def _render_build_file(
     parts.append(f'exports_files(glob(["kconfig_srcs/**"]) + [{joined}])\n')
 
     for s in settings:
+        label = labels.get(f"CONFIG_{s.name}")
         parts.append("")
-        parts.append(
-            _FLAG_TEMPLATE.format(
-                rule=s.rule,
-                name=s.name,
-                default=_starlark_default(s),
+        if label is not None:
+            parts.append(_SETTING_ALIAS_TEMPLATE.format(name=s.name, label=label))
+        else:
+            parts.append(
+                _FLAG_TEMPLATE.format(
+                    rule=s.rule,
+                    name=s.name,
+                    default=_starlark_default(s),
+                )
             )
-        )
 
     settings_str = "\n".join(f'        ":CONFIG_{s.name}",' for s in settings)
     defaults_str = "\n".join(
@@ -333,10 +365,17 @@ def _render_config_h_in(settings: list[KconfigSetting]) -> str:
     return _CONFIG_H_IN_TEMPLATE.format(undefs=undefs)
 
 
-def _render_settings_bzl(settings: list[KconfigSetting]) -> str:
+def _render_settings_bzl(
+    settings: list[KconfigSetting],
+    *,
+    settings_labels: dict[str, str] | None = None,
+) -> str:
     """Render a settings.bzl with flag metadata baked into the macro."""
-    bool_flags = [s for s in settings if s.rule == "bool_flag"]
-    other_flags = [s for s in settings if s.rule != "bool_flag"]
+    labels = settings_labels or {}
+    flag_settings = [s for s in settings if f"CONFIG_{s.name}" not in labels]
+
+    bool_flags = [s for s in flag_settings if s.rule == "bool_flag"]
+    other_flags = [s for s in flag_settings if s.rule != "bool_flag"]
 
     bool_lines = "\n".join(f'    Label("//:CONFIG_{s.name}"),' for s in bool_flags)
     other_lines = "\n".join(f'    Label("//:CONFIG_{s.name}"),' for s in other_flags)
@@ -363,9 +402,16 @@ class KconfigManifest(TypedDict):
     config: NotRequired[str]
     """Rendered .config filename. Present only when defaults are provided."""
 
+    settings_labels: NotRequired[dict[str, str]]
+    """CONFIG_* names mapped to user-provided label strings."""
+
 
 def _build_manifest(
-    kconf: Any, srctree: Path, *, has_defaults: bool = False
+    kconf: Any,
+    srctree: Path,
+    *,
+    has_defaults: bool = False,
+    settings_labels: dict[str, str] | None = None,
 ) -> KconfigManifest:
     """Build a manifest with root and files list."""
     files: list[str] = []
@@ -378,6 +424,8 @@ def _build_manifest(
     manifest = KconfigManifest(root=files[0], files=sorted(set(files)))
     if has_defaults:
         manifest["config"] = "rendered.config"
+    if settings_labels:
+        manifest["settings_labels"] = settings_labels
     return manifest
 
 
@@ -409,7 +457,11 @@ def main() -> None:
     source_cache = read_source_files(kconf, srctree)
     settings = collect_settings(kconf, source_cache, has_defaults=has_defaults)
 
-    manifest_data = _build_manifest(kconf, srctree, has_defaults=has_defaults)
+    settings_labels: dict[str, str] = json.loads(args.settings_labels)
+
+    manifest_data = _build_manifest(
+        kconf, srctree, has_defaults=has_defaults, settings_labels=settings_labels
+    )
     manifest_json = json.dumps(manifest_data, indent=2) + "\n"
 
     args.out_build.write_text(
@@ -417,6 +469,7 @@ def main() -> None:
             settings,
             repo_name=args.repo_name,
             root_file=manifest_data["root"],
+            settings_labels=settings_labels,
             has_rendered_config=True,
             config_ws_path=args.config_ws_path,
         ),
@@ -425,7 +478,10 @@ def main() -> None:
     args.out_config_h_in.write_text(_render_config_h_in(settings), encoding="utf-8")
     args.out_manifest.write_text(manifest_json, encoding="utf-8")
 
-    args.out_settings_bzl.write_text(_render_settings_bzl(settings), encoding="utf-8")
+    args.out_settings_bzl.write_text(
+        _render_settings_bzl(settings, settings_labels=settings_labels),
+        encoding="utf-8",
+    )
     args.out_settings_build.parent.mkdir(parents=True, exist_ok=True)
 
     settings_options: dict[str, list[str]] = json.loads(args.settings_options)
