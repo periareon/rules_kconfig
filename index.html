@@ -199,7 +199,8 @@ config COUNT
 <tr><td><code>@my_kconfig//:CONFIG_FOO</code></td><td><code>bool_flag</code> (default <code>False</code>)</td></tr>
 <tr><td><code>@my_kconfig//:CONFIG_COUNT</code></td><td><code>int_flag</code> (default <code>3</code>)</td></tr>
 <tr><td><code>@my_kconfig//:config</code></td><td><code>cc_library</code> providing <code>config.h</code></td></tr>
-<tr><td><code>@my_kconfig//settings.CONFIG_FOO</code></td><td><code>config_setting</code> matching <code>CONFIG_FOO = true</code></td></tr>
+<tr><td><code>@my_kconfig//settings.CONFIG_FOO_Y</code></td><td><code>config_setting</code> matching <code>CONFIG_FOO = true</code></td></tr>
+<tr><td><code>@my_kconfig//settings.CONFIG_FOO_N</code></td><td><code>config_setting</code> matching <code>CONFIG_FOO = false</code></td></tr>
 <tr><td><code>@my_kconfig//settings.CONFIG_COUNT_3</code></td><td><code>config_setting</code> matching <code>CONFIG_COUNT = 3</code></td></tr>
 </tbody></table>
 </div>
@@ -225,15 +226,16 @@ build --@my_kconfig//:CONFIG_COUNT=7
 </code></pre>
 <h3 id="reacting-to-flags-with-config_setting"><a class="header" href="#reacting-to-flags-with-config_setting">Reacting to flags with <code>config_setting</code></a></h3>
 <p>The generated repository includes a <code>settings/</code> subpackage with
-<code>config_setting</code> targets for every flag. Bool flags produce a single
-target matching <code>"true"</code>; int and string flags produce a target matching
-their Kconfig default value (named <code>CONFIG_&lt;NAME&gt;_&lt;value&gt;</code>).</p>
+<code>config_setting</code> targets for every flag. Bool flags produce two targets:
+<code>CONFIG_&lt;NAME&gt;_Y</code> (matching <code>"true"</code>) and <code>CONFIG_&lt;NAME&gt;_N</code> (matching
+<code>"false"</code>). Int and string flags produce a target matching their Kconfig
+default value (named <code>CONFIG_&lt;NAME&gt;_&lt;value&gt;</code>).</p>
 <p>Use these directly in <code>select()</code>:</p>
 <pre><code class="language-python">cc_library(
     name = "mylib",
     srcs = ["mylib.c"],
     deps = select({
-        "@my_kconfig//settings:kconfig.CONFIG_FOO": ["//extras:foo_support"],
+        "@my_kconfig//settings:kconfig.CONFIG_FOO_Y": ["//extras:foo_support"],
         "//conditions:default": [],
     }),
 )
