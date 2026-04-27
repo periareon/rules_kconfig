@@ -3,8 +3,19 @@
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_cc_autoconf//autoconf:cc_autoconf_info.bzl", "CcAutoconfInfo", "encode_result")
 
+def _is_unquoted_value(value):
+    """Return True if a string value should be rendered unquoted in C."""
+    if not value:
+        return False
+    if value.startswith("0x") or value.startswith("0X"):
+        return True
+    if value.lstrip("-").isdigit():
+        return True
+    return False
+
 def _kconfig_autoconf_impl(ctx):
     define_results = {}
+    unquoted = []
 
     for setting in ctx.attr.settings:
         info = setting[BuildSettingInfo]
@@ -18,9 +29,14 @@ def _kconfig_autoconf_impl(ctx):
         elif type(value) == "int":
             result_value = value
         elif type(value) == "string":
-            if not value:
+            if not value or value == "n":
                 continue
-            result_value = value
+            if value == "y":
+                result_value = 1
+            else:
+                result_value = value
+                if _is_unquoted_value(value):
+                    unquoted.append(name)
         else:
             fail("Unsupported build setting type for {}: {}".format(name, type(value)))
 
@@ -35,6 +51,7 @@ def _kconfig_autoconf_impl(ctx):
         CcAutoconfInfo(
             owner = ctx.label,
             define_results = define_results,
+            unquoted_defines = unquoted,
         ),
     ]
 
