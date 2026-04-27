@@ -20,3 +20,9 @@ config LABEL
 	default "hello"
 	help
 	  Example string option.
+
+config BASE_ADDR
+	hex "Base address"
+	default 0x1000
+	help
+	  Example hex option.
