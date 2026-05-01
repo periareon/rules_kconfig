@@ -25,5 +25,13 @@ int main(void) {
     failed = 1;
 #endif
 
+#ifndef TRISTATE_DEFAULT_MATCHED
+    fprintf(
+        stderr,
+        "FAIL: config_setting CONFIG_TRISTATE_N did not match; "
+        "expected CONFIG_TRISTATE to default to \"n\" (no Kconfig default)\n");
+    failed = 1;
+#endif
+
     return failed;
 }

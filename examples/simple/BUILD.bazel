@@ -46,6 +46,10 @@ cc_test(
         select({
             ":settings.CONFIG_LABEL_hello": ["LABEL_MATCHED"],
             "//conditions:default": [],
+        }) +
+        select({
+            ":settings.CONFIG_TRISTATE_N": ["TRISTATE_DEFAULT_MATCHED"],
+            "//conditions:default": [],
         }),
 )
 

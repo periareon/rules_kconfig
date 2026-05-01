@@ -150,11 +150,11 @@ class TestHexType:  # pylint: disable=too-few-public-methods
         assert isinstance(s.default, str)
 
 
-class TestTristateType:  # pylint: disable=too-few-public-methods
+class TestTristateType:
     """Parse tristate-typed Kconfig symbols."""
 
-    def test_maps_to_string_flag(self, tmp_path: Path) -> None:
-        """Tristate symbols are represented as string_flag."""
+    def test_maps_to_tristate_flag(self, tmp_path: Path) -> None:
+        """Tristate symbols are represented as tristate_flag."""
         settings = _parse(
             tmp_path,
             """\
@@ -167,8 +167,42 @@ class TestTristateType:  # pylint: disable=too-few-public-methods
         assert len(settings) == 1
         s = settings[0]
         assert s.name == "MODULE"
-        assert s.rule == "string_flag"
+        assert s.rule == "tristate_flag"
         assert s.default == "y"
+
+    def test_default_m(self, tmp_path: Path) -> None:
+        """A tristate with ``default m`` produces ``"m"``."""
+        settings = _parse(
+            tmp_path,
+            """\
+            config MODULES
+                bool "Enable modules"
+                option modules
+                default y
+
+            config MODULAR
+                tristate "Module support"
+                default m
+        """,
+        )
+
+        by_name = {s.name: s for s in settings}
+        assert by_name["MODULAR"].rule == "tristate_flag"
+        assert by_name["MODULAR"].default == "m"
+
+    def test_default_n(self, tmp_path: Path) -> None:
+        """A tristate with ``default n`` produces ``"n"``."""
+        settings = _parse(
+            tmp_path,
+            """\
+            config DISABLED_TRI
+                tristate "Disabled tristate"
+                default n
+        """,
+        )
+
+        assert settings[0].rule == "tristate_flag"
+        assert settings[0].default == "n"
 
 
 class TestNoExplicitDefault:
@@ -199,6 +233,19 @@ class TestNoExplicitDefault:
 
         assert settings[0].rule == "int_flag"
         assert settings[0].default == 0
+
+    def test_tristate_defaults_to_n(self, tmp_path: Path) -> None:
+        """A bare tristate defaults to ``"n"``."""
+        settings = _parse(
+            tmp_path,
+            """\
+            config BARE_TRI
+                tristate "Bare"
+        """,
+        )
+
+        assert settings[0].rule == "tristate_flag"
+        assert settings[0].default == "n"
 
     def test_string_defaults_to_empty(self, tmp_path: Path) -> None:
         """A bare string defaults to ``""``."""
@@ -338,6 +385,20 @@ class TestShellTainted:
 
         assert settings[0].rule == "bool_flag"
         assert settings[0].default is False
+
+    def test_tristate_shell_tainted(self, tmp_path: Path) -> None:
+        """A tristate with a shell default falls back to ``"n"``."""
+        settings = _parse(
+            tmp_path,
+            """\
+            config TRI_TAINTED
+                tristate "Tainted tristate"
+                default $(shell,test -f /tmp/mod && echo m || echo n)
+        """,
+        )
+
+        assert settings[0].rule == "tristate_flag"
+        assert settings[0].default == "n"
 
 
 class TestEmptyKconfig:  # pylint: disable=too-few-public-methods

@@ -11,7 +11,7 @@ import kconfiglib  # type: ignore[import-untyped]
 
 _TYPE_MAP = {
     kconfiglib.BOOL: "bool_flag",
-    kconfiglib.TRISTATE: "string_flag",
+    kconfiglib.TRISTATE: "tristate_flag",
     kconfiglib.INT: "int_flag",
     kconfiglib.HEX: "string_flag",
     kconfiglib.STRING: "string_flag",
@@ -19,6 +19,7 @@ _TYPE_MAP = {
 
 _FALSEY_PYTHON_DEFAULTS: dict[str, Union[bool, int, str]] = {
     "bool_flag": False,
+    "tristate_flag": "n",
     "int_flag": 0,
     "string_flag": "",
 }
@@ -149,6 +150,8 @@ def python_default(sym: kconfiglib.Symbol, rule: str) -> Union[bool, int, str]:
     """Convert a symbol's resolved Kconfig default to a Python-native value."""
     if rule == "bool_flag":
         return bool(sym.str_value == "y")
+    if rule == "tristate_flag":
+        return str(sym.str_value)
     if rule == "int_flag":
         try:
             return int(sym.str_value)

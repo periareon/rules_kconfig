@@ -26,3 +26,8 @@ config BASE_ADDR
 	default 0x1000
 	help
 	  Example hex option.
+
+config TRISTATE
+	tristate "Tristate Feature support"
+	help
+	  Example tristate option.
