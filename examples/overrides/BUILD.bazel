@@ -1,7 +1,24 @@
+load("@overrides_kconfig//:defs.bzl", "with_kconfig_overrides")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 cc_test(
     name = "test_overrides",
     srcs = ["test_overrides.c"],
     deps = ["@overrides_kconfig//:config"],
+)
+
+# Demonstrate wrapping a cc_binary as a test target via with_kconfig_overrides.
+# The transition applies the .config overrides so the binary sees the
+# overridden CONFIG_FOO=y and CONFIG_COUNT=42 values.
+cc_binary(
+    name = "test_overrides_bin",
+    srcs = ["test_overrides.c"],
+    deps = ["@simple_kconfig//:config"],
+)
+
+with_kconfig_overrides(
+    name = "test_overrides_transitioned",
+    actual = ":test_overrides_bin",
+    test = True,
 )
