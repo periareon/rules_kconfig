@@ -83,6 +83,9 @@ kconfig_savedefconfig(
     defaults = {{
 {defaults}
     }},
+    types = {{
+{types}
+    }},
     visibility = ["//visibility:public"],
 )
 """
@@ -122,6 +125,10 @@ _BOOL_FLAGS = [
 {bool_flags}
 ]
 
+_TRISTATE_FLAGS = [
+{tristate_flags}
+]
+
 _OTHER_FLAGS = [
 {other_flags}
 ]
@@ -135,7 +142,11 @@ def kconfig_config_settings(*, name, options = {{}}, visibility = None):
 
     Bool flags produce two config_settings: ``{{name}}.{{CONFIG_*}}_Y``
     (matching ``"true"``) and ``{{name}}.{{CONFIG_*}}_N`` (matching
-    ``"false"``).  Non-bool flags use values from *options*, falling
+    ``"false"``).  Tristate flags produce three config_settings:
+    ``{{name}}.{{CONFIG_*}}_Y`` (matching ``"y"``),
+    ``{{name}}.{{CONFIG_*}}_M`` (matching ``"m"``), and
+    ``{{name}}.{{CONFIG_*}}_N`` (matching ``"n"``).
+    Non-bool/non-tristate flags use values from *options*, falling
     back to their Kconfig default when not specified, producing targets
     named ``{{name}}.{{CONFIG_*}}_{{value}}``.  Flags with neither are
     skipped.
@@ -155,6 +166,23 @@ def kconfig_config_settings(*, name, options = {{}}, visibility = None):
         native.config_setting(
             name = name + "." + flag.name + "_N",
             flag_values = {{flag: "false"}},
+            visibility = visibility,
+        )
+
+    for flag in _TRISTATE_FLAGS:
+        native.config_setting(
+            name = name + "." + flag.name + "_Y",
+            flag_values = {{flag: "y"}},
+            visibility = visibility,
+        )
+        native.config_setting(
+            name = name + "." + flag.name + "_M",
+            flag_values = {{flag: "m"}},
+            visibility = visibility,
+        )
+        native.config_setting(
+            name = name + "." + flag.name + "_N",
+            flag_values = {{flag: "n"}},
             visibility = visibility,
         )
 
@@ -297,7 +325,7 @@ def _default_as_string(setting: KconfigSetting) -> str:
     return val.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _render_build_file(  # pylint: disable=too-many-arguments
+def _render_build_file(  # pylint: disable=too-many-arguments,too-many-locals
     settings: list[KconfigSetting],
     *,
     repo_name: str,
@@ -314,7 +342,11 @@ def _render_build_file(  # pylint: disable=too-many-arguments
     parts: list[str] = []
 
     needed_rules = sorted(
-        {s.rule for s in settings if f"CONFIG_{s.name}" not in labels}
+        {
+            "string_flag" if s.rule == "tristate_flag" else s.rule
+            for s in settings
+            if f"CONFIG_{s.name}" not in labels
+        }
     )
     if needed_rules:
         parts.append(
@@ -341,7 +373,7 @@ def _render_build_file(  # pylint: disable=too-many-arguments
         else:
             parts.append(
                 _FLAG_TEMPLATE.format(
-                    rule=s.rule,
+                    rule="string_flag" if s.rule == "tristate_flag" else s.rule,
                     name=s.name,
                     default=_starlark_default(s),
                 )
@@ -351,9 +383,16 @@ def _render_build_file(  # pylint: disable=too-many-arguments
     defaults_str = "\n".join(
         f'        "CONFIG_{s.name}": "{_default_as_string(s)}",' for s in settings
     )
+    types_str = "\n".join(
+        f'        "CONFIG_{s.name}": "tristate",'
+        for s in settings
+        if s.rule == "tristate_flag"
+    )
     parts.append("")
     parts.append(
-        _AUTOCONF_TEMPLATE.format(settings=settings_str, defaults=defaults_str)
+        _AUTOCONF_TEMPLATE.format(
+            settings=settings_str, defaults=defaults_str, types=types_str
+        )
     )
 
     parts.append("")
@@ -382,9 +421,15 @@ def _render_settings_bzl(
     flag_settings = [s for s in settings if f"CONFIG_{s.name}" not in labels]
 
     bool_flags = [s for s in flag_settings if s.rule == "bool_flag"]
-    other_flags = [s for s in flag_settings if s.rule != "bool_flag"]
+    tristate_flags = [s for s in flag_settings if s.rule == "tristate_flag"]
+    other_flags = [
+        s for s in flag_settings if s.rule not in ("bool_flag", "tristate_flag")
+    ]
 
     bool_lines = "\n".join(f'    Label("//:CONFIG_{s.name}"),' for s in bool_flags)
+    tristate_lines = "\n".join(
+        f'    Label("//:CONFIG_{s.name}"),' for s in tristate_flags
+    )
     other_lines = "\n".join(f'    Label("//:CONFIG_{s.name}"),' for s in other_flags)
     default_lines = "\n".join(
         f'    "CONFIG_{s.name}": "{_default_as_string(s)}",' for s in other_flags
@@ -392,6 +437,7 @@ def _render_settings_bzl(
 
     return _SETTINGS_BZL_TEMPLATE.format(
         bool_flags=bool_lines,
+        tristate_flags=tristate_lines,
         other_flags=other_lines,
         defaults=default_lines,
     )

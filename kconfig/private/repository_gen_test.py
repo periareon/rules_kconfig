@@ -174,7 +174,9 @@ class TestRenderSettingsBzl:
         output = _render_settings_bzl(settings)
         for line in output.splitlines():
             if "name = name" in line and "flag.name" in line:
-                assert "_Y" in line or "_N" in line or "str(value)" in line
+                assert (
+                    "_Y" in line or "_N" in line or "_M" in line or "str(value)" in line
+                )
 
     def test_int_flag_uses_value_suffix(self) -> None:
         """Int flags emit config_setting targets with _<value> suffixes."""
@@ -206,3 +208,44 @@ class TestRenderSettingsBzl:
         )
         assert "CONFIG_LABELED" not in output
         assert 'Label("//:CONFIG_UNLABELED")' in output
+
+    def test_tristate_flag_produces_y_m_n_suffixes(self) -> None:
+        """Tristate flags emit config_setting targets with _Y, _M, and _N suffixes."""
+        settings = [KconfigSetting(name="MOD", rule="tristate_flag", default="y")]
+        output = _render_settings_bzl(settings)
+        assert 'Label("//:CONFIG_MOD")' in output
+        assert "_Y" in output
+        assert "_M" in output
+        assert "_N" in output
+
+    def test_tristate_not_in_other_flags(self) -> None:
+        """Tristate flags appear in _TRISTATE_FLAGS, not _OTHER_FLAGS."""
+        settings = [KconfigSetting(name="MOD", rule="tristate_flag", default="m")]
+        output = _render_settings_bzl(settings)
+        # Verify CONFIG_MOD appears in _TRISTATE_FLAGS section
+        assert "_TRISTATE_FLAGS" in output
+        # Extract _OTHER_FLAGS section and check it doesn't contain CONFIG_MOD
+        lines = output.split("\n")
+        in_other = False
+        for line in lines:
+            if "_OTHER_FLAGS" in line and "=" in line:
+                in_other = True
+                continue
+            if in_other and "]" in line:
+                break
+            if in_other:
+                assert (
+                    "CONFIG_MOD" not in line
+                ), "tristate flag should not appear in _OTHER_FLAGS"
+
+    def test_mixed_flag_types_partition_correctly(self) -> None:
+        """Bool, tristate, and other flags are partitioned into separate lists."""
+        settings = [
+            KconfigSetting(name="ENABLED", rule="bool_flag", default=True),
+            KconfigSetting(name="MOD", rule="tristate_flag", default="m"),
+            KconfigSetting(name="COUNT", rule="int_flag", default=5),
+        ]
+        output = _render_settings_bzl(settings)
+        assert 'Label("//:CONFIG_ENABLED")' in output
+        assert 'Label("//:CONFIG_MOD")' in output
+        assert 'Label("//:CONFIG_COUNT")' in output

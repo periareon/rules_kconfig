@@ -8,4 +8,8 @@
 #error "CONFIG_COUNT should be 3"
 #endif
 
+#ifdef CONFIG_TRISTATE
+#error "CONFIG_TRISTATE should not be defined when defaulting to n"
+#endif
+
 int main(void) { return 0; }

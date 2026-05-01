@@ -16,17 +16,28 @@ def _format_string(name, value):
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return '{}="{}"'.format(name, escaped)
 
+def _format_tristate(name, value):
+    if not value or value == "n":
+        return "# {} is not set".format(name)
+    return "{}={}".format(name, value)
+
 def _kconfig_savedefconfig_impl(ctx):
     lines = []
     defaults = ctx.attr.defaults
+
+    types = ctx.attr.types
 
     for setting in ctx.attr.settings:
         info = setting[BuildSettingInfo]
         name = setting.label.name
         value = info.value
         default_str = defaults.get(name, "")
+        flag_type = types.get(name)
 
-        if type(value) == "bool":
+        if flag_type == "tristate":
+            if value != default_str:
+                lines.append(_format_tristate(name, value))
+        elif type(value) == "bool":
             default_val = default_str == "True"
             if value != default_val:
                 lines.append(_format_bool(name, value))
@@ -70,6 +81,9 @@ producing a sparse config suitable for `conf -D` (olddefconfig).
         "settings": attr.label_list(
             doc = "The CONFIG_* build setting targets to read.",
             providers = [BuildSettingInfo],
+        ),
+        "types": attr.string_dict(
+            doc = "Map of CONFIG_* names to their Kconfig type (e.g. 'tristate'). Used to select the correct output format.",
         ),
     },
 )
