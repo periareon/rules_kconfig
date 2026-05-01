@@ -74,17 +74,18 @@ def make_kconfig_override_transition(original_defaults, overrides):
 def make_kconfig_overrides_rules(cfg):
     """Create ``with_kconfig_overrides`` rules wired to the given transition.
 
-    Returns a pair of rules: one for non-executable targets (libraries,
-    genrules, filegroups) and one for executable targets (binaries).
-    Use the generated ``with_kconfig_overrides`` macro which delegates
-    to the appropriate rule based on the ``executable`` parameter.
+    Returns a triple of rules: one for non-executable targets (libraries,
+    genrules, filegroups), one for executable targets (binaries), and one
+    for test targets.  Use the generated ``with_kconfig_overrides`` macro
+    which delegates to the appropriate rule based on the ``executable``
+    and ``test`` parameters.
 
     Args:
         cfg: A ``transition`` object that maps kconfig flags to their
             overridden values.
 
     Returns:
-        A tuple ``(non_executable_rule, executable_rule)``.
+        A tuple ``(non_executable_rule, executable_rule, test_rule)``.
     """
     _attrs = {
         "actual": attr.label(
@@ -111,4 +112,11 @@ def make_kconfig_overrides_rules(cfg):
         attrs = _attrs,
     )
 
-    return _non_exec, _exec
+    _test = rule(
+        doc = "Apply .config overrides to a kconfig-dependent test target via a transition.",
+        implementation = _with_kconfig_overrides_binary_impl,
+        test = True,
+        attrs = _attrs,
+    )
+
+    return _non_exec, _exec, _test

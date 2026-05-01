@@ -33,18 +33,21 @@ _OVERRIDES = {{
 
 _kconfig_overrides_transition = make_kconfig_override_transition(_ORIGINAL_DEFAULTS, _OVERRIDES)
 
-_with_kconfig_overrides, _with_kconfig_overrides_binary = make_kconfig_overrides_rules(_kconfig_overrides_transition)
+_with_kconfig_overrides, _with_kconfig_overrides_binary, _with_kconfig_overrides_test = make_kconfig_overrides_rules(_kconfig_overrides_transition)
 
-def with_kconfig_overrides(name, actual, executable = False, **kwargs):
+def with_kconfig_overrides(name, actual, executable = False, test = False, **kwargs):
     \"\"\"Apply .config overrides to a kconfig-dependent target via a transition.
 
     Args:
         name: Target name.
         actual: The kconfig-dependent target to apply overrides to.
         executable: Set to True when wrapping an executable target (e.g. cc_binary).
+        test: Set to True when wrapping a test target (e.g. cc_test).
         **kwargs: Additional attributes forwarded to the underlying rule.
     \"\"\"
-    if executable:
+    if test:
+        _with_kconfig_overrides_test(name = name, actual = actual, **kwargs)
+    elif executable:
         _with_kconfig_overrides_binary(name = name, actual = actual, **kwargs)
     else:
         _with_kconfig_overrides(name = name, actual = actual, **kwargs)
