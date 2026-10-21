@@ -1,5 +1,13 @@
 """kconfig_repository"""
 
+load(
+    "//kconfig/private:wasm_backend.bzl",
+    "new_request",
+    "run_module",
+    "select_backend",
+    "write_files",
+)
+
 def _find_kconfiglib(repository_ctx):
     """Resolve the directory containing kconfiglib from the anchor label."""
     return repository_ctx.path(repository_ctx.attr.kconfiglib_anchor).dirname
@@ -8,7 +16,11 @@ def _rules_kconfig_root(repository_ctx):
     """Derive the rules_kconfig repo root from the _kconfig_parser label."""
     return str(repository_ctx.path(repository_ctx.attr._kconfig_parser).dirname.dirname.dirname)
 
-def _kconfig_repository_impl(repository_ctx):
+def _config_ws_path(label):
+    return (label.package + "/" + label.name).lstrip("/")
+
+def _generate_with_python(repository_ctx, kconfig, repo_name, manifest_file):
+    """Run `repository_gen.py` with the `interpreter`."""
     python = repository_ctx.path(repository_ctx.attr.interpreter)
     kconfiglib = _find_kconfiglib(repository_ctx)
     generator = repository_ctx.path(repository_ctx.attr._repository_gen)
@@ -17,14 +29,8 @@ def _kconfig_repository_impl(repository_ctx):
     parser = repository_ctx.path(repository_ctx.attr._kconfig_parser)
     repository_ctx.watch(parser)
 
-    kconfig = repository_ctx.path(repository_ctx.attr.kconfig)
-
     build_file = repository_ctx.path("BUILD.bazel")
-    manifest_file = repository_ctx.path("kconfig.manifest.json")
     config_h_in_file = repository_ctx.path("config.h.in")
-
-    repo_name = repository_ctx.attr.apparent_name or repository_ctx.name
-
     rendered_config_file = repository_ctx.path("rendered.config")
     settings_bzl_file = repository_ctx.path("settings.bzl")
     settings_build_file = repository_ctx.path("settings/BUILD.bazel")
@@ -57,10 +63,7 @@ def _kconfig_repository_impl(repository_ctx):
         defaults = repository_ctx.path(repository_ctx.attr.defaults)
         cmd.extend(["--defaults", defaults])
         repository_ctx.watch(defaults)
-
-        defaults_label = repository_ctx.attr.defaults
-        config_ws_path = (defaults_label.package + "/" + defaults_label.name).lstrip("/")
-        cmd.extend(["--config_ws_path", config_ws_path])
+        cmd.extend(["--config_ws_path", _config_ws_path(repository_ctx.attr.defaults)])
 
     if repository_ctx.attr.settings_options:
         cmd.extend(["--settings_options", json.encode(repository_ctx.attr.settings_options)])
@@ -77,7 +80,38 @@ def _kconfig_repository_impl(repository_ctx):
     if result.return_code != 0:
         fail("Failed to invoke Python: {}".format(result.stderr))
 
-    manifest = json.decode(repository_ctx.read(manifest_file))
+    return json.decode(repository_ctx.read(manifest_file))
+
+def _generate_with_wasm(repository_ctx, module, kconfig, repo_name):
+    """Run the WebAssembly module, which reads the Kconfig tree through this rule."""
+    request = new_request(repository_ctx, "repository", kconfig, kconfig.dirname)
+    request["repo_name"] = repo_name
+    request["defaults"] = None
+    request["config_ws_path"] = None
+    request["settings_labels"] = dict(repository_ctx.attr.settings_labels)
+    request["settings_options"] = {
+        name: list(values)
+        for name, values in repository_ctx.attr.settings_options.items()
+    }
+    if repository_ctx.attr.defaults:
+        request["defaults"] = str(repository_ctx.path(repository_ctx.attr.defaults))
+        request["config_ws_path"] = _config_ws_path(repository_ctx.attr.defaults)
+
+    response = run_module(repository_ctx, module, request)
+    write_files(repository_ctx, response["files"])
+    return response["manifest"]
+
+def _kconfig_repository_impl(repository_ctx):
+    kconfig = repository_ctx.path(repository_ctx.attr.kconfig)
+    repo_name = repository_ctx.attr.apparent_name or repository_ctx.name
+    manifest_file = repository_ctx.path("kconfig.manifest.json")
+
+    backend = select_backend(repository_ctx)
+    if backend.name == "wasm":
+        manifest = _generate_with_wasm(repository_ctx, backend.module, kconfig, repo_name)
+    else:
+        manifest = _generate_with_python(repository_ctx, kconfig, repo_name, manifest_file)
+
     kconfig_dir = kconfig.dirname
     for f in manifest["files"]:
         src = kconfig_dir.get_child(f)
@@ -104,6 +138,11 @@ The Kconfig source tree is symlinked into `kconfig_srcs/` and a
 A repo-named symlink (e.g. `@my_kconfig//:my_kconfig`) points to
 the manifest for downstream consumers.
 
+The Kconfig tree is parsed by kconfiglib, either inside the WebAssembly module
+a release of rules_kconfig carries (Bazel 9.3 or newer with
+`--experimental_repository_ctx_execute_wasm`; no interpreter needed) or by the
+Python `interpreter`. The `interpreter` is ignored when the module is used.
+
 Prefer using the `kconfig` module extension rather than calling this rule
 directly.
 """,
@@ -116,8 +155,7 @@ directly.
             doc = "Optional .config file with explicit symbol values that override Kconfig defaults.",
         ),
         "interpreter": attr.label(
-            doc = "A Python interpreter target used to run the Kconfig parser.",
-            mandatory = True,
+            doc = "A Python interpreter target used to run the Kconfig parser when the WebAssembly backend is not available.",
         ),
         "kconfig": attr.label(
             doc = "The root Kconfig file to parse. All files referenced via `source` directives are followed automatically.",
@@ -139,6 +177,14 @@ configuration (e.g. toolchain-derived values like compiler version).
         "settings_options": attr.string_list_dict(
             doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
             default = {},
+        ),
+        "wasm_module": attr.label(
+            doc = """\
+The WebAssembly backend (`kconfig.wasm`), used on Bazel 9.3 or newer with
+`--experimental_repository_ctx_execute_wasm`. The `kconfig` module extension
+provides the module of the release, or the one `RULES_KCONFIG_WASM` names; without
+one the Python `interpreter` is used.
+""",
         ),
         "_kconfig_parser": attr.label(
             default = Label("//kconfig/private:kconfig_parser.py"),

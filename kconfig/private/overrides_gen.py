@@ -7,12 +7,14 @@ then delegates transition and rule creation to
 """
 
 import argparse
+import dataclasses
 import json
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from kconfig.private.kconfig_parser import (
+    ReadText,
     collect_settings,
     parse_kconfig,
     read_source_files,
@@ -90,6 +92,7 @@ menuconfig(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--kconfig",
@@ -137,7 +140,7 @@ def parse_args() -> argparse.Namespace:
         "--config_ws_path",
         type=str,
         required=True,
-        help=        "Workspace-relative path to the .config file (for the generated menuconfig target).",
+        help="Workspace-relative path to the .config file (for the generated menuconfig target).",
     )
     parser.add_argument(
         "--out_rendered_config",
@@ -162,15 +165,12 @@ def _starlark_literal(val: Union[bool, int, str]) -> str:
     if isinstance(val, int):
         return str(val)
     escaped = val.replace("\\", "\\\\").replace('"', '\\"')
-    return '"{}"'.format(escaped)
+    return f'"{escaped}"'
 
 
 def _render_dict_entries(entries: dict[str, str]) -> str:
     """Render sorted dict entries as indented Starlark key-value lines."""
-    lines = []
-    for label, val in sorted(entries.items()):
-        lines.append('    "{}": {},'.format(label, val))
-    return "\n".join(lines)
+    return "".join(f'    "{label}": {val},\n' for label, val in sorted(entries.items()))
 
 
 def _render_defs(
@@ -184,40 +184,90 @@ def _render_defs(
     )
 
 
-def main() -> None:
-    args = parse_args()
+@dataclasses.dataclass(frozen=True)
+class OverridesOutputs:
+    """The files of a generated overrides repository, as text."""
 
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+    defs: str
+    """`defs.bzl`."""
 
-    kconfig_path = args.kconfig.absolute()
-    srctree = args.srctree.absolute()
-    config_path = args.config.absolute()
+    build: str
+    """`BUILD.bazel`."""
+
+    rendered_config: str
+    """`rendered.config`: the fully resolved `.config` with the overrides applied."""
+
+
+def generate(  # pylint: disable=too-many-arguments,too-many-locals
+    *,
+    kconfig: Path,
+    srctree: Path,
+    config: Path,
+    kconfig_repo: str,
+    config_ws_path: str,
+    base_config: Optional[Path] = None,
+    settings_labels: Optional[dict[str, str]] = None,
+    rendered_config: bool = True,
+    read_text: Optional[ReadText] = None,
+    chdir: bool = True,
+) -> OverridesOutputs:
+    """Parse a Kconfig tree with a `.config` overlay and render the overrides repository.
+
+    This is what `main` does, without touching the filesystem on the way out:
+    the WebAssembly backend calls it with its own `read_text` and writes the
+    results from Starlark.
+
+    Args:
+        kconfig: The root Kconfig file, inside the source repository's `kconfig_srcs/`.
+        srctree: The `kconfig_srcs/` directory.
+        config: The `.config` file with the override values.
+        kconfig_repo: The canonical repository prefix of the source kconfig repository.
+        config_ws_path: The workspace-relative path of `config`, for the `menuconfig` target.
+        base_config: The rendered `.config` of the source repository, if it had defaults.
+        settings_labels: `CONFIG_*` names provided by user rules, skipped in transitions.
+        rendered_config: Whether `rendered.config` is written, and so exported.
+        read_text: How Kconfig sources are read for the `$(shell,...)` scan;
+            the filesystem by default.
+        chdir: See :func:`parse_kconfig`.
+
+    Returns:
+        The generated files.
+    """
+    kconfig_path = kconfig.absolute()
+    srctree = srctree.absolute()
+    config_path = config.absolute()
 
     log.info("Parsing %s (srctree=%s)", kconfig_path, srctree)
-    kconf = parse_kconfig(kconfig_path, srctree)
+    kconf = parse_kconfig(kconfig_path, srctree, chdir=chdir)
 
-    has_base_config = args.base_config is not None
-    if has_base_config:
-        base_config_path = args.base_config.absolute()
+    has_base_config = base_config is not None
+    if base_config is not None:
+        base_config_path = base_config.absolute()
         log.info("Loading base config from %s", base_config_path)
         kconf.load_config(str(base_config_path))
 
-    source_cache = read_source_files(kconf, srctree)
-    labeled: set[str] = set(json.loads(args.settings_labels))
+    source_cache = read_source_files(kconf, srctree, read_text=read_text)
+    labeled: set[str] = set(settings_labels or {})
 
-    original_settings = collect_settings(kconf, source_cache, has_defaults=has_base_config, labeled_symbols=labeled)
+    original_settings = collect_settings(
+        kconf, source_cache, has_defaults=has_base_config, labeled_symbols=labeled
+    )
 
     original_defaults: dict[str, str] = {}
     for s in original_settings:
         if f"CONFIG_{s.name}" in labeled:
             continue
-        flag_label = "{repo}//:CONFIG_{name}".format(repo=args.kconfig_repo, name=s.name)
+        flag_label = f"{kconfig_repo}//:CONFIG_{s.name}"
         original_defaults[flag_label] = _starlark_literal(s.default)
 
+    # Merged, not replaced: a symbol the override file does not mention keeps
+    # the base value rather than falling back to its Kconfig default.
     log.info("Loading overrides from %s", config_path)
-    kconf.load_config(str(config_path))
+    kconf.load_config(str(config_path), replace=False)
 
-    override_settings = collect_settings(kconf, source_cache, has_defaults=True, labeled_symbols=labeled)
+    override_settings = collect_settings(
+        kconf, source_cache, has_defaults=True, labeled_symbols=labeled
+    )
 
     overrides: dict[str, str] = {}
     override_by_name = {s.name: s for s in override_settings}
@@ -226,22 +276,47 @@ def main() -> None:
             continue
         override_s = override_by_name.get(s.name)
         if override_s and override_s.default != s.default:
-            flag_label = "{repo}//:CONFIG_{name}".format(repo=args.kconfig_repo, name=s.name)
+            flag_label = f"{kconfig_repo}//:CONFIG_{s.name}"
             overrides[flag_label] = _starlark_literal(override_s.default)
 
-    args.out_defs.write_text(_render_defs(original_defaults, overrides), encoding="utf-8")
-
-    if args.out_rendered_config:
-        kconf.write_config(str(args.out_rendered_config))
-
     build_content = _BUILD_TEMPLATE_HEADER
-    if args.out_rendered_config:
+    if rendered_config:
         build_content += "\n" + _BUILD_TEMPLATE_EXPORTS
-    build_content += "\n" + _BUILD_TEMPLATE_BODY.format(kconfig_repo=args.kconfig_repo)
+    build_content += "\n" + _BUILD_TEMPLATE_BODY.format(kconfig_repo=kconfig_repo)
     build_content += "\n"
-    build_content += _MENUCONFIG_TEMPLATE.format(config_ws_path=args.config_ws_path)
+    build_content += _MENUCONFIG_TEMPLATE.format(config_ws_path=config_ws_path)
 
-    args.out_build.write_text(build_content, encoding="utf-8")
+    # What `Kconfig.write_config` writes, without the file.
+    rendered = kconf._config_contents(None)  # pylint: disable=protected-access
+
+    return OverridesOutputs(
+        defs=_render_defs(original_defaults, overrides),
+        build=build_content,
+        rendered_config=rendered,
+    )
+
+
+def main() -> None:
+    """The main entrypoint"""
+    args = parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+
+    outputs = generate(
+        kconfig=args.kconfig,
+        srctree=args.srctree,
+        config=args.config,
+        kconfig_repo=args.kconfig_repo,
+        config_ws_path=args.config_ws_path,
+        base_config=args.base_config,
+        settings_labels=json.loads(args.settings_labels),
+        rendered_config=args.out_rendered_config is not None,
+    )
+
+    args.out_defs.write_text(outputs.defs, encoding="utf-8")
+    if args.out_rendered_config:
+        args.out_rendered_config.write_text(outputs.rendered_config, encoding="utf-8")
+    args.out_build.write_text(outputs.build, encoding="utf-8")
 
 
 if __name__ == "__main__":

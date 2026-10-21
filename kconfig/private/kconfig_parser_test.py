@@ -401,6 +401,46 @@ class TestShellTainted:
         assert settings[0].default == "n"
 
 
+class TestShellTaintedThroughVariable:
+    """A default taken from a variable assigned with ``$(shell,...)`` is tainted too."""
+
+    def test_variable_default_is_tainted(self, tmp_path: Path) -> None:
+        """``VAR := $(shell,...)`` then ``default $(VAR)`` gets the falsey default."""
+        settings = _parse(
+            tmp_path,
+            """\
+            HOST_ARCH := $(shell,echo x86)
+            PLATFORM = $(HOST_ARCH)-linux
+
+            config ARCH
+                string "Architecture"
+                default "$(HOST_ARCH)"
+
+            config PLATFORM
+                string "Platform"
+                default "$(PLATFORM)"
+
+            config CLEAN
+                string "Clean"
+                default "$(UNRELATED)"
+        """,
+        )
+
+        by_name = {s.name: s for s in settings}
+        assert by_name["ARCH"].default == ""
+        assert by_name["PLATFORM"].default == ""
+        assert by_name["CLEAN"].default == ""  # an unset variable expands to nothing
+        assert by_name["CLEAN"].kconfig_type == "string"
+
+    def test_environment_is_restored(self, tmp_path: Path) -> None:
+        """Parsing does not leave ``srctree`` in the environment."""
+        import os  # pylint: disable=import-outside-toplevel
+
+        os.environ.pop("srctree", None)
+        _parse(tmp_path, "config X\n    bool\n")
+        assert "srctree" not in os.environ
+
+
 class TestEmptyKconfig:  # pylint: disable=too-few-public-methods
     """An empty Kconfig (no config symbols) produces no settings."""
 

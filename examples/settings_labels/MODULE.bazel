@@ -16,8 +16,8 @@ local_path_override(
 )
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
-python.toolchain(python_version = "3.12")
-use_repo(python, "python_3_12_host")
+python.toolchain(python_version = "3.14")
+use_repo(python, "python_3_14_host")
 
 kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 
@@ -25,7 +25,7 @@ kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 # so we replace it with a user-provided rule via settings_labels.
 kconfig.repo(
     name = "setting_labels_kconfig",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python_3_14_host//:python",
     kconfig = "//:Kconfig",
     settings_labels = {
         "//:version_setting": "CONFIG_VERSION",
@@ -38,7 +38,7 @@ kconfig.repo(
 kconfig.overrides(
     name = "setting_labels_overrides",
     config = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python_3_14_host//:python",
     kconfig = "@setting_labels_kconfig//:setting_labels_kconfig",
 )
 use_repo(kconfig, "setting_labels_kconfig", "setting_labels_overrides")
