@@ -27,6 +27,19 @@ config BASE_ADDR
 	help
 	  Example hex option.
 
+config NUMERIC_STRING
+	string "A string that looks like a number"
+	default "42"
+	help
+	  A string symbol is always quoted in config.h, whatever it holds.
+
+config MODULES
+	bool
+	default y
+	option modules
+	help
+	  Lets tristate symbols take the value m.
+
 config TRISTATE
 	tristate "Tristate Feature support"
 	help

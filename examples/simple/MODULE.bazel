@@ -15,13 +15,13 @@ local_path_override(
 )
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
-python.toolchain(python_version = "3.12")
-use_repo(python, "python_3_12_host")
+python.toolchain(python_version = "3.14")
+use_repo(python, "python_3_14_host")
 
 kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "simple_kconfig",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python_3_14_host//:python",
     kconfig = "//:Kconfig",
 )
 use_repo(kconfig, "simple_kconfig")

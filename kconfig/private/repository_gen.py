@@ -1,14 +1,17 @@
 """A script for parsing kconfig files and rendering the equivalent to a Bazel repository"""
 
 import argparse
+import dataclasses
 import json
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired, Optional, TypedDict
 
 from kconfig.private.kconfig_parser import (
     KconfigSetting,
+    ReadText,
     collect_settings,
+    kconfig_type,
     parse_kconfig,
     read_source_files,
 )
@@ -57,6 +60,9 @@ kconfig_autoconf(
     settings = [
 {settings}
     ],
+    types = {{
+{kconfig_types}
+    }},
     visibility = ["//visibility:public"],
 )
 
@@ -388,10 +394,16 @@ def _render_build_file(  # pylint: disable=too-many-arguments,too-many-locals
         for s in settings
         if s.rule == "tristate_flag"
     )
+    kconfig_types_str = "\n".join(
+        f'        "CONFIG_{s.name}": "{kconfig_type(s)}",' for s in settings
+    )
     parts.append("")
     parts.append(
         _AUTOCONF_TEMPLATE.format(
-            settings=settings_str, defaults=defaults_str, types=types_str
+            settings=settings_str,
+            defaults=defaults_str,
+            types=types_str,
+            kconfig_types=kconfig_types_str,
         )
     )
 
@@ -406,9 +418,17 @@ def _render_build_file(  # pylint: disable=too-many-arguments,too-many-locals
 
 
 def _render_config_h_in(settings: list[KconfigSetting]) -> str:
-    """Render a config.h.in template with #undef for each Kconfig symbol."""
-    undefs = "\n".join(f"#undef CONFIG_{s.name}" for s in settings)
-    return _CONFIG_H_IN_TEMPLATE.format(undefs=undefs)
+    """Render a config.h.in template with #undef for each Kconfig symbol.
+
+    A tristate symbol also gets ``CONFIG_<name>_MODULE``, which is what the
+    Kconfig tools define for the value ``m``.
+    """
+    lines = []
+    for s in settings:
+        lines.append(f"#undef CONFIG_{s.name}")
+        if kconfig_type(s) == "tristate":
+            lines.append(f"#undef CONFIG_{s.name}_MODULE")
+    return _CONFIG_H_IN_TEMPLATE.format(undefs="\n".join(lines))
 
 
 def _render_settings_bzl(
@@ -482,18 +502,76 @@ def _build_manifest(
     return manifest
 
 
-def main() -> None:
-    """The main entrypoint"""
-    args = parse_args()
+@dataclasses.dataclass(frozen=True)
+class RepositoryOutputs:
+    """The files of a generated kconfig repository, as text."""
 
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+    build: str
+    """`BUILD.bazel`."""
 
-    kconfig_path: Path = args.kconfig.absolute()
-    srctree: Path = (args.srctree or kconfig_path.parent).absolute()
+    manifest: KconfigManifest
+    """The manifest, see :class:`KconfigManifest`."""
+
+    manifest_json: str
+    """`kconfig.manifest.json`: the manifest as written."""
+
+    config_h_in: str
+    """`config.h.in`."""
+
+    rendered_config: str
+    """`rendered.config`: the fully resolved `.config`."""
+
+    settings_bzl: str
+    """`settings.bzl`."""
+
+    settings_build: str
+    """`settings/BUILD.bazel`."""
+
+
+def generate(  # pylint: disable=too-many-arguments,too-many-locals
+    *,
+    kconfig: Path,
+    repo_name: str,
+    srctree: Optional[Path] = None,
+    defaults: Optional[Path] = None,
+    config_ws_path: Optional[str] = None,
+    settings_labels: Optional[dict[str, str]] = None,
+    settings_options: Optional[dict[str, list[str]]] = None,
+    read_text: Optional[ReadText] = None,
+    chdir: bool = True,
+) -> RepositoryOutputs:
+    """Parse a Kconfig tree and render the files of a kconfig repository.
+
+    This is what `main` does, without touching the filesystem on the way out:
+    the WebAssembly backend calls it with its own `read_text` and writes the
+    results from Starlark.
+
+    Args:
+        kconfig: The root Kconfig file.
+        repo_name: The name of the generated repository.
+        srctree: The root of the source tree; the parent of `kconfig` by default.
+        defaults: An optional `.config` with values overriding Kconfig defaults.
+        config_ws_path: The workspace-relative path of `defaults`, when set;
+            a `menuconfig` target is generated for it.
+        settings_labels: `CONFIG_*` names mapped to the labels of user-provided
+            build settings replacing them.
+        settings_options: `CONFIG_*` names mapped to the values to generate
+            `config_setting`s for.
+        read_text: How Kconfig sources are read for the `$(shell,...)` scan;
+            the filesystem by default.
+        chdir: See :func:`parse_kconfig`.
+
+    Returns:
+        The generated files.
+    """
+    kconfig_path = kconfig.absolute()
+    srctree = (srctree or kconfig_path.parent).absolute()
+    settings_labels = settings_labels or {}
+    settings_options = settings_options or {}
 
     log.info("Parsing %s (srctree=%s)", kconfig_path, srctree)
 
-    kconf = parse_kconfig(kconfig_path, srctree)
+    kconf = parse_kconfig(kconfig_path, srctree, chdir=chdir)
 
     log.info(
         "Parsed %d unique symbols from %d files",
@@ -501,14 +579,13 @@ def main() -> None:
         len(kconf.kconfig_filenames),
     )
 
-    has_defaults = args.defaults is not None
-    if has_defaults:
-        defaults_path = args.defaults.absolute()
+    has_defaults = defaults is not None
+    if defaults is not None:
+        defaults_path = defaults.absolute()
         log.info("Loading defaults from %s", defaults_path)
         kconf.load_config(str(defaults_path))
 
-    source_cache = read_source_files(kconf, srctree)
-    settings_labels: dict[str, str] = json.loads(args.settings_labels)
+    source_cache = read_source_files(kconf, srctree, read_text=read_text)
     settings = collect_settings(
         kconf,
         source_cache,
@@ -519,29 +596,7 @@ def main() -> None:
     manifest_data = _build_manifest(
         kconf, srctree, has_defaults=has_defaults, settings_labels=settings_labels
     )
-    manifest_json = json.dumps(manifest_data, indent=2) + "\n"
 
-    args.out_build.write_text(
-        _render_build_file(
-            settings,
-            repo_name=args.repo_name,
-            root_file=manifest_data["root"],
-            settings_labels=settings_labels,
-            has_rendered_config=True,
-            config_ws_path=args.config_ws_path,
-        ),
-        encoding="utf-8",
-    )
-    args.out_config_h_in.write_text(_render_config_h_in(settings), encoding="utf-8")
-    args.out_manifest.write_text(manifest_json, encoding="utf-8")
-
-    args.out_settings_bzl.write_text(
-        _render_settings_bzl(settings, settings_labels=settings_labels),
-        encoding="utf-8",
-    )
-    args.out_settings_build.parent.mkdir(parents=True, exist_ok=True)
-
-    settings_options: dict[str, list[str]] = json.loads(args.settings_options)
     if settings_options:
         options_lines = "\n".join(
             f'        "{k}": {json.dumps(v)},'
@@ -550,11 +605,51 @@ def main() -> None:
         options_str = f"\n    options = {{\n{options_lines}\n    }},"
     else:
         options_str = ""
-    args.out_settings_build.write_text(
-        _SETTINGS_BUILD_TEMPLATE.format(options=options_str), encoding="utf-8"
+
+    # What `Kconfig.write_config` writes, without the file.
+    rendered_config = kconf._config_contents(None)  # pylint: disable=protected-access
+
+    return RepositoryOutputs(
+        build=_render_build_file(
+            settings,
+            repo_name=repo_name,
+            root_file=manifest_data["root"],
+            settings_labels=settings_labels,
+            has_rendered_config=True,
+            config_ws_path=config_ws_path,
+        ),
+        manifest=manifest_data,
+        manifest_json=json.dumps(manifest_data, indent=2) + "\n",
+        config_h_in=_render_config_h_in(settings),
+        rendered_config=rendered_config,
+        settings_bzl=_render_settings_bzl(settings, settings_labels=settings_labels),
+        settings_build=_SETTINGS_BUILD_TEMPLATE.format(options=options_str),
     )
 
-    kconf.write_config(str(args.out_rendered_config))
+
+def main() -> None:
+    """The main entrypoint"""
+    args = parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+
+    outputs = generate(
+        kconfig=args.kconfig,
+        repo_name=args.repo_name,
+        srctree=args.srctree,
+        defaults=args.defaults,
+        config_ws_path=args.config_ws_path,
+        settings_labels=json.loads(args.settings_labels),
+        settings_options=json.loads(args.settings_options),
+    )
+
+    args.out_build.write_text(outputs.build, encoding="utf-8")
+    args.out_config_h_in.write_text(outputs.config_h_in, encoding="utf-8")
+    args.out_manifest.write_text(outputs.manifest_json, encoding="utf-8")
+    args.out_settings_bzl.write_text(outputs.settings_bzl, encoding="utf-8")
+    args.out_settings_build.parent.mkdir(parents=True, exist_ok=True)
+    args.out_settings_build.write_text(outputs.settings_build, encoding="utf-8")
+    args.out_rendered_config.write_text(outputs.rendered_config, encoding="utf-8")
 
 
 if __name__ == "__main__":

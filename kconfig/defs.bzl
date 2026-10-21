@@ -17,10 +17,14 @@ kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "my_kconfig",
     kconfig = "//:Kconfig",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python_3_14_host//:python",
 )
 use_repo(kconfig, "my_kconfig")
 ```
+
+The `interpreter` is used by the Python backend. On Bazel 9.3 or newer with
+`--experimental_repository_ctx_execute_wasm`, a release of rules_kconfig parses
+with the WebAssembly module it publishes instead, and no interpreter is needed.
 
 Use `kconfig.overrides` to overlay a `.config` file onto an external kconfig
 repository via a Starlark transition:
@@ -30,7 +34,7 @@ kconfig.overrides(
     name = "my_board_config",
     kconfig = "@ext_kconfig//:ext_kconfig",
     config = "//:.config",
-    interpreter = "@python_3_12_host//:python",
+    interpreter = "@python_3_14_host//:python",
 )
 use_repo(kconfig, "my_board_config")
 ```

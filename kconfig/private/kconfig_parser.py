@@ -3,11 +3,12 @@
 import dataclasses
 import logging
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Callable, Optional, Union
 
-import kconfiglib  # type: ignore[import-untyped]
+import kconfiglib
 
 _TYPE_MAP = {
     kconfiglib.BOOL: "bool_flag",
@@ -16,6 +17,26 @@ _TYPE_MAP = {
     kconfiglib.HEX: "string_flag",
     kconfiglib.STRING: "string_flag",
 }
+
+# The Kconfig type names, which `config.h` rendering needs where the flag kind
+# is ambiguous (`hex` and `string` are both `string_flag`).
+_KCONFIG_TYPE_MAP = {
+    kconfiglib.BOOL: "bool",
+    kconfiglib.TRISTATE: "tristate",
+    kconfiglib.INT: "int",
+    kconfiglib.HEX: "hex",
+    kconfiglib.STRING: "string",
+}
+
+_RULE_TO_KCONFIG_TYPE = {
+    "bool_flag": "bool",
+    "tristate_flag": "tristate",
+    "int_flag": "int",
+    "string_flag": "string",
+}
+
+# A macro call or variable reference, `$(NAME` with the name captured.
+_MACRO_REFERENCE = re.compile(r"\$\(\s*([A-Za-z0-9_-]+)")
 
 _FALSEY_PYTHON_DEFAULTS: dict[str, Union[bool, int, str]] = {
     "bool_flag": False,
@@ -57,19 +78,25 @@ class KconfigSetting:
     default: Union[bool, int, str]
     """Python-native default value for the build setting."""
 
+    kconfig_type: str = ""
+    """The Kconfig type: ``"bool"``, ``"tristate"``, ``"int"``, ``"hex"`` or
+    ``"string"``. Empty when constructed without one; see :func:`kconfig_type`."""
 
-_orig_shell_fn = kconfiglib._shell_fn  # pylint: disable=protected-access
+
+def kconfig_type(setting: KconfigSetting) -> str:
+    """The Kconfig type of a setting, derived from its rule when not recorded."""
+    return setting.kconfig_type or _RULE_TO_KCONFIG_TYPE[setting.rule]
+
+
+# pylint: disable-next=protected-access
+_orig_shell_fn: Callable[..., Any] = kconfiglib._shell_fn
 
 
 def _soft_shell_fn(kconf: kconfiglib.Kconfig, name: str, command: str) -> Any:
     """Wrapper around kconfiglib's `$(shell,...)` that returns a safe fallback on failure."""
-    try:
-        result = _orig_shell_fn(kconf, name, command)
-        if result:
-            return result
-    except Exception as exc:
-        print(type(exc))
-        raise
+    result = _orig_shell_fn(kconf, name, command)
+    if result:
+        return result
 
     # Return "n" so unquoted $(shell,...) in bool/tristate defaults tokenizes validly.
     # The actual value is irrelevant — _is_shell_tainted detects these and assigns
@@ -77,15 +104,34 @@ def _soft_shell_fn(kconf: kconfiglib.Kconfig, name: str, command: str) -> Any:
     return "n"
 
 
-def parse_kconfig(kconfig_path: Path, srctree: Path) -> kconfiglib.Kconfig:
+ReadText = Callable[[Path], str]
+"""Reads a file as text; the default reads the filesystem."""
+
+
+def _read_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def parse_kconfig(
+    kconfig_path: Path, srctree: Path, *, chdir: bool = True
+) -> kconfiglib.Kconfig:
     """Parse a Kconfig file tree and return the kconfiglib object.
 
     Handles the cwd/srctree dance that kconfiglib requires.
     Shell macros that fail or return empty are replaced with a safe placeholder
     so parsing succeeds on all platforms.
+
+    Args:
+        kconfig_path: The root Kconfig file.
+        srctree: The directory `source` directives are resolved against.
+        chdir: Whether to run the parse from `srctree`, as the C tools do, so
+            that `$(shell,...)` commands see it as their working directory.
+            The WebAssembly backend has no working directory and passes False.
     """
-    prev_dir = os.getcwd()
-    os.chdir(srctree)
+    prev_dir = os.getcwd() if chdir else None
+    if chdir:
+        os.chdir(srctree)
+    prev_srctree = os.environ.get("srctree")
 
     # pylint: disable=protected-access
     kconfiglib._shell_fn = _soft_shell_fn
@@ -98,29 +144,80 @@ def parse_kconfig(kconfig_path: Path, srctree: Path) -> kconfiglib.Kconfig:
         )
     finally:
         kconfiglib._shell_fn = _orig_shell_fn
-        os.chdir(prev_dir)
+        if prev_srctree is None:
+            del os.environ["srctree"]
+        else:
+            os.environ["srctree"] = prev_srctree
+        if prev_dir is not None:
+            os.chdir(prev_dir)
 
 
-def read_source_files(kconf: kconfiglib.Kconfig, srctree: Path) -> dict[str, list[str]]:
-    """Read and cache all Kconfig source files, keyed by kconfiglib filename."""
+def read_source_files(
+    kconf: kconfiglib.Kconfig,
+    srctree: Path,
+    *,
+    read_text: Optional[ReadText] = None,
+) -> dict[str, list[str]]:
+    """Read and cache all Kconfig source files, keyed by kconfiglib filename.
+
+    Args:
+        kconf: The parsed configuration.
+        srctree: The directory relative filenames are resolved against.
+        read_text: How to read a file; defaults to the filesystem.
+    """
+    reader = read_text or _read_file
     cache: dict[str, list[str]] = {}
     for filename in kconf.kconfig_filenames:
         abs_path = Path(filename)
         if not abs_path.is_absolute():
             abs_path = srctree / filename
         try:
-            cache[filename] = (
-                abs_path.absolute().read_text(encoding="utf-8").splitlines()
-            )
+            cache[filename] = reader(abs_path.absolute()).splitlines()
         except OSError:
             logging.warning("Could not read Kconfig source: %s", abs_path)
     return cache
 
 
+# A preprocessor variable assignment, `NAME = value`, `NAME := value` or
+# `NAME += value`, at the start of a line.
+_VARIABLE_ASSIGNMENT = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*(?::=|\+=|=)(.*)$")
+
+
+def _tainted_variables(source_cache: dict[str, list[str]]) -> set[str]:
+    """The preprocessor variables whose value comes, possibly indirectly, from `$(shell,...)`.
+
+    A symbol can take a host-dependent default without naming `$(shell,...)`
+    itself, through `VAR := $(shell,...)` and `default $(VAR)`; such symbols
+    are treated like direct uses. The sources are scanned rather than
+    kconfiglib's variables, which hold `:=` values already expanded.
+    """
+    assigned: dict[str, set[str]] = {}
+    for lines in source_cache.values():
+        for line in lines:
+            match = _VARIABLE_ASSIGNMENT.match(line)
+            if match:
+                assigned.setdefault(match.group(1), set()).update(
+                    _MACRO_REFERENCE.findall(match.group(2))
+                )
+
+    tainted: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for name, references in assigned.items():
+            if name not in tainted and ("shell" in references or references & tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
 def _is_shell_tainted(
-    sym: kconfiglib.Symbol, source_cache: dict[str, list[str]]
+    sym: kconfiglib.Symbol,
+    source_cache: dict[str, list[str]],
+    tainted_variables: set[str] | None = None,
 ) -> bool:
-    """Check whether any definition of sym directly contains $(shell,...) macros."""
+    """Check whether a definition of sym uses $(shell,...), directly or through a variable."""
+    tainted_variables = tainted_variables or set()
     for node in sym.nodes:
         lines = source_cache.get(node.filename)
         if lines is None:
@@ -140,8 +237,10 @@ def _is_shell_tainted(
                     break
             end += 1
 
-        if any("$(shell," in lines[i] for i in range(start, min(end, len(lines)))):
-            return True
+        for i in range(start, min(end, len(lines))):
+            references = set(_MACRO_REFERENCE.findall(lines[i]))
+            if "shell" in references or references & tainted_variables:
+                return True
 
     return False
 
@@ -181,13 +280,14 @@ def collect_settings(
         labeled_symbols = set()
     errors: list[str] = []
     result: list[KconfigSetting] = []
+    tainted_variables = _tainted_variables(source_cache)
     for sym in kconf.unique_defined_syms:
         rule = _TYPE_MAP.get(sym.orig_type)
         if not rule:
             logging.debug("Skipping symbol %s (type %s)", sym.name, sym.orig_type)
             continue
 
-        shell_tainted = _is_shell_tainted(sym, source_cache)
+        shell_tainted = _is_shell_tainted(sym, source_cache, tainted_variables)
 
         if (
             shell_tainted
@@ -209,13 +309,21 @@ def collect_settings(
         else:
             default = python_default(sym, rule)
 
-        result.append(KconfigSetting(name=sym.name, rule=rule, default=default))
+        result.append(
+            KconfigSetting(
+                name=sym.name,
+                rule=rule,
+                default=default,
+                kconfig_type=_KCONFIG_TYPE_MAP[sym.orig_type],
+            )
+        )
 
     if errors:
         msg = "Defaults file is missing required symbols:\n" + "\n".join(
             "  - " + e for e in errors
         )
-        print(msg, file=sys.stderr)
-        sys.exit(1)
+        # Exits with the message on stderr and status 1 when run as a tool;
+        # the WebAssembly backend catches it and reports the message.
+        sys.exit(msg)
 
     return result

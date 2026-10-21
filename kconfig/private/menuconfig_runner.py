@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
-import kconfiglib  # type: ignore[import-untyped]
-import menuconfig  # type: ignore[import-untyped]
+import kconfiglib
+import menuconfig
 from python.runfiles import Runfiles
 
 

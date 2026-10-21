@@ -97,6 +97,58 @@ jobs:
         run: bazel $env:BAZEL_STARTUP_FLAGS test //...
         if: startswith(runner.os, 'Windows')
 
+  # The WebAssembly backend, the way a release produces and uses it: the
+  # module is built with Bazel and published (here as a workflow artifact,
+  # by the release as an asset whose URL and integrity go into module.bzl),
+  # and the example repositories are generated with it on a Bazel that has
+  # `execute_wasm`, pointed at it by `RULES_KCONFIG_WASM`. No Python
+  # interpreter takes part in the examples.
+  ci-wasm:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-24.04
+    env:
+      USE_BAZEL_VERSION: 9.x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - name: Build the module
+        run: |
+          bazel ${BAZEL_STARTUP_FLAGS[@]} build //kconfig/private/wasm:kconfig_wasm
+          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery --output=files //kconfig/private/wasm:kconfig_wasm)" "${RUNNER_TEMP}/kconfig.wasm"
+          echo "RULES_KCONFIG_WASM=${RUNNER_TEMP}/kconfig.wasm" >> "${GITHUB_ENV}"
+          echo "integrity: sha256-$(shasum --algorithm 256 "${RUNNER_TEMP}/kconfig.wasm" | awk '{ print $1 }' | xxd -r -p | base64)"
+
+      - name: Publish the module
+        uses: actions/upload-artifact@v4
+        with:
+          name: kconfig.wasm-${{ matrix.os }}
+          path: ${{ env.RULES_KCONFIG_WASM }}
+          if-no-files-found: error
+
+      # The examples name an `interpreter` so that they also run where the
+      # module cannot; it is dropped here so that a fall-back to the Python
+      # backend would fail rather than pass unnoticed.
+      - name: Generate the example repositories with the module
+        run: |
+          sed -i.bak '/interpreter = /d' examples/*/MODULE.bazel
+          for example in simple overrides settings_labels; do
+            echo "::group::${example}"
+            (cd "examples/${example}" && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
+              --experimental_repository_ctx_execute_wasm \
+              --repo_env=RULES_KCONFIG_WASM="${RULES_KCONFIG_WASM}")
+            echo "::endgroup::"
+          done
+
   ci-format:
     runs-on: ubuntu-24.04
     steps:

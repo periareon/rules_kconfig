@@ -15,5 +15,19 @@ int main(void) {
     failed = 1;
 #endif
 
+    /* A tristate overridden to m defines CONFIG_X_MODULE, not CONFIG_X. */
+#ifndef CONFIG_TRISTATE_MODULE
+    fprintf(
+        stderr,
+        "FAIL: CONFIG_TRISTATE_MODULE should be defined (overridden to m)\n");
+    failed = 1;
+#endif
+#ifdef CONFIG_TRISTATE
+    fprintf(
+        stderr,
+        "FAIL: CONFIG_TRISTATE should not be defined when the value is m\n");
+    failed = 1;
+#endif
+
     return failed;
 }

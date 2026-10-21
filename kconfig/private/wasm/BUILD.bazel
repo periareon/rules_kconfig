@@ -1,0 +1,48 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_venv//python:py_library.bzl", "py_library")
+load("@rules_venv//python/pytest:defs.bzl", "py_pytest_test")
+load("@rules_venv//python/wasm:defs.bzl", "py_wasm_module")
+
+# The WebAssembly backend: CPython, kconfiglib and the generators of
+# `//kconfig/private`, run by the repository rules through
+# `repository_ctx.execute_wasm`. See `wasm_backend.bzl` and `entry.py`.
+#
+# A release builds `:kconfig_wasm`, attaches it as `kconfig.wasm` and bakes
+# its URL and integrity into `module.bzl`, from where the `kconfig` extension
+# downloads it. The target is `manual`: it fetches a compiler and the CPython
+# devkit, and builds on Linux and macOS.
+
+py_library(
+    name = "entry",
+    srcs = ["entry.py"],
+    deps = [
+        "//kconfig/private:overrides_gen_lib",
+        "//kconfig/private:repository_gen_lib",
+    ],
+)
+
+py_wasm_module(
+    name = "kconfig_wasm",
+    entry = "kconfig.private.wasm.entry",
+    python_version = "3.14",
+    tags = ["manual"],
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    exports = ["run"],
+    deps = [":entry"],
+)
+
+py_pytest_test(
+    name = "entry_test",
+    srcs = ["entry_test.py"],
+    deps = [":entry"],
+)
+
+bzl_library(
+    name = "bzl_lib",
+    srcs = glob(["*.bzl"]) + ["//:version.bzl"],
+    visibility = ["//kconfig/private:__pkg__"],
+)
