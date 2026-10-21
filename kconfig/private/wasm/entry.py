@@ -47,6 +47,7 @@ import glob
 import io
 import json
 import os
+import re
 import traceback
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
@@ -85,6 +86,40 @@ def _wire(value: str) -> str:
     return value.encode("utf-8", "surrogateescape").decode("latin-1")
 
 
+# A Windows drive path as Bazel writes it, `C:/...`.
+_DRIVE_PATH = re.compile(r"^[A-Za-z]:/")
+
+# Whether paths follow POSIX rules here: in the module always (its interpreter
+# is a POSIX build), natively only off Windows.
+_POSIX_PATHS = os.sep == "/"
+
+
+def _internal_path(host_path: str) -> str:
+    """A host path as the module handles it.
+
+    The interpreter in the module is a POSIX build, so `pathlib` and
+    `os.path` do not know a Windows drive path is absolute: `Path("C:/x")
+    .absolute()` would prefix the working directory. Inside the module such
+    a path carries a leading slash, `/C:/x`, which POSIX rules treat as
+    absolute; `_host_path` removes it again on the way out. Natively on
+    Windows the interpreter understands drive paths and nothing is changed.
+    """
+    if _POSIX_PATHS and _DRIVE_PATH.match(host_path):
+        return "/" + host_path
+    return host_path
+
+
+def _host_path(internal_path: str) -> str:
+    """The host's form of a path `_internal_path` produced."""
+    if (
+        _POSIX_PATHS
+        and internal_path.startswith("/")
+        and _DRIVE_PATH.match(internal_path[1:])
+    ):
+        return internal_path[1:]
+    return internal_path
+
+
 class Host:
     """What Starlark has provided so far, and what the generation found missing.
 
@@ -94,11 +129,13 @@ class Host:
     """
 
     def __init__(self, request: Dict[str, Any]) -> None:
+        # Keyed by the paths the module asked for, in the module's form.
         self.files: Dict[str, Optional[Dict[str, Any]]] = {
-            _text(path): info for path, info in (request.get("files") or {}).items()
+            _internal_path(_text(path)): info
+            for path, info in (request.get("files") or {}).items()
         }
         self.dirs: Dict[str, Optional[List[List[Any]]]] = {
-            _text(path): entries
+            _internal_path(_text(path)): entries
             for path, entries in (request.get("dirs") or {}).items()
         }
         self.shell_results: Dict[str, Optional[Dict[str, Any]]] = {
@@ -174,7 +211,10 @@ class Host:
         """The `need` response listing what the next round must provide."""
         response: Dict[str, Any] = {"status": "need"}
         for kind, requests in self.pending_requests.items():
-            response[kind] = [_wire(item) for item in requests]
+            if kind == "shell":
+                response[kind] = [_wire(item) for item in requests]
+            else:
+                response[kind] = [_wire(_host_path(item)) for item in requests]
         response["uname_release"] = self.need_uname_release
         return response
 
@@ -346,15 +386,20 @@ def _uname_release_needed(host: Host) -> bool:
     return False
 
 
+def _path(value: str) -> Path:
+    """A path of the request, in the module's form."""
+    return Path(_internal_path(_text(value)))
+
+
 def _optional_path(value: Optional[str]) -> Optional[Path]:
-    return Path(_text(value)) if value else None
+    return _path(value) if value else None
 
 
 def _generate(request: Dict[str, Any], host: Host) -> Dict[str, Any]:
     """Run the generator of `request["command"]` and return its files."""
     command = request.get("command")
-    srctree = Path(_text(request["srctree"]))
-    kconfig = Path(_text(request["kconfig"]))
+    srctree = _path(request["srctree"])
+    kconfig = _path(request["kconfig"])
     settings_labels = {
         _text(name): _text(label)
         for name, label in (request.get("settings_labels") or {}).items()
@@ -386,7 +431,7 @@ def _generate(request: Dict[str, Any], host: Host) -> Dict[str, Any]:
         overrides = overrides_gen.generate(
             kconfig=kconfig,
             srctree=srctree,
-            config=Path(_text(request["config"])),
+            config=_path(request["config"]),
             kconfig_repo=_text(request["kconfig_repo"]),
             config_ws_path=_text(request["config_ws_path"]),
             base_config=_optional_path(request.get("base_config")),
@@ -418,8 +463,10 @@ def handle(request: Dict[str, Any]) -> Dict[str, Any]:
     environ = {
         _text(name): _text(value) for name, value in (request.get("env") or {}).items()
     }
-    environ["srctree"] = _text(request["srctree"])
-    srctree_realpath = _text(request.get("srctree_realpath") or request["srctree"])
+    environ["srctree"] = _internal_path(_text(request["srctree"]))
+    srctree_realpath = _internal_path(
+        _text(request.get("srctree_realpath") or request["srctree"])
+    )
 
     response: Dict[str, Any]
     try:

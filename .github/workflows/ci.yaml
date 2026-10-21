@@ -100,10 +100,13 @@ jobs:
   # The WebAssembly backend, the way a release produces and uses it: the
   # module is built with Bazel and published (here as a workflow artifact,
   # by the release as an asset whose URL and integrity go into module.bzl),
-  # and the example repositories are generated with it on a Bazel that has
-  # `execute_wasm`, pointed at it by `RULES_KCONFIG_WASM`. No Python
-  # interpreter takes part in the examples.
-  ci-wasm:
+  # and the example repositories are generated with it on every host, on a
+  # Bazel that has `execute_wasm`, pointed at it by `RULES_KCONFIG_WASM`.
+  #
+  # Building needs a host rules_venv has a `py_wasm_toolchain` for (Linux
+  # and macOS); running the module does not, so the two are separate jobs
+  # and the examples also run on Windows.
+  ci-wasm-build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -125,29 +128,86 @@ jobs:
         run: |
           bazel ${BAZEL_STARTUP_FLAGS[@]} build //kconfig/private/wasm:kconfig_wasm
           cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery --output=files //kconfig/private/wasm:kconfig_wasm)" "${RUNNER_TEMP}/kconfig.wasm"
-          echo "RULES_KCONFIG_WASM=${RUNNER_TEMP}/kconfig.wasm" >> "${GITHUB_ENV}"
           echo "integrity: sha256-$(shasum --algorithm 256 "${RUNNER_TEMP}/kconfig.wasm" | awk '{ print $1 }' | xxd -r -p | base64)"
 
       - name: Publish the module
         uses: actions/upload-artifact@v4
         with:
           name: kconfig.wasm-${{ matrix.os }}
-          path: ${{ env.RULES_KCONFIG_WASM }}
+          path: ${{ runner.temp }}/kconfig.wasm
           if-no-files-found: error
+
+  ci-wasm:
+    needs: ci-wasm-build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - windows-2022
+    env:
+      USE_BAZEL_VERSION: 9.x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - name: Setup Bazelrc (Windows)
+        run: |
+          echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
+          echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
+          echo "startup --output_user_root=D:/bzl" > ./user.bazelrc
+        if: startswith(runner.os, 'Windows')
+      - name: Setup Bazelrc
+        run: |
+          echo "common --keep_going" >> ./user.bazelrc
+
+      # The module built on Linux; a module is the same whatever host built it.
+      - uses: actions/download-artifact@v4
+        with:
+          name: kconfig.wasm-ubuntu-24.04
+          path: ${{ runner.temp }}/kconfig_wasm
 
       # The examples name an `interpreter` so that they also run where the
       # module cannot; it is dropped here so that a fall-back to the Python
-      # backend would fail rather than pass unnoticed.
-      - name: Generate the example repositories with the module
+      # backend would fail rather than pass unnoticed. Windows runs Bazel from
+      # its native shell, like the other jobs, so that the run is what a
+      # Windows user gets.
+      - name: Generate the example repositories with the module (Unix)
+        if: startswith(runner.os, 'Windows') != true
         run: |
           sed -i.bak '/interpreter = /d' examples/*/MODULE.bazel
           for example in simple overrides settings_labels; do
             echo "::group::${example}"
             (cd "examples/${example}" && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
               --experimental_repository_ctx_execute_wasm \
-              --repo_env=RULES_KCONFIG_WASM="${RULES_KCONFIG_WASM}")
+              --repo_env=RULES_KCONFIG_WASM="${RUNNER_TEMP}/kconfig_wasm/kconfig.wasm")
             echo "::endgroup::"
           done
+      - name: Generate the example repositories with the module (Windows)
+        if: startswith(runner.os, 'Windows')
+        run: |
+          $module = "$env:RUNNER_TEMP/kconfig_wasm/kconfig.wasm" -replace '\\', '/'
+          foreach ($file in Get-ChildItem examples/*/MODULE.bazel) {
+            (Get-Content $file) | Where-Object { $_ -notmatch 'interpreter = ' } | Set-Content $file
+          }
+          foreach ($example in @("simple", "overrides", "settings_labels")) {
+            Write-Output "::group::$example"
+            Push-Location "examples/$example"
+            try {
+              & bazel $env:BAZEL_STARTUP_FLAGS test //... --experimental_repository_ctx_execute_wasm "--repo_env=RULES_KCONFIG_WASM=$module"
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } finally {
+              Pop-Location
+              Write-Output "::endgroup::"
+            }
+          }
 
   ci-format:
     runs-on: ubuntu-24.04
@@ -173,3 +233,24 @@ jobs:
           source: '.'
           extensions: 'h,c,cc'
           clangFormatVersion: 14
+
+  # Single job that every other job feeds into. It succeeds only when all of
+  # them succeeded, so it is the one status check to mark as required in the
+  # branch protection rules; new jobs only need to be added to `needs` here.
+  ci-complete:
+    name: CI complete
+    runs-on: ubuntu-24.04
+    if: always()
+    needs:
+      - ci
+      - ci-examples
+      - ci-wasm
+      - ci-format
+    steps:
+      - name: Report job results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: echo "${RESULTS}"
+      - name: Fail if any job did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
