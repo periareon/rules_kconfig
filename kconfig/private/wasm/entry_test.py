@@ -365,3 +365,68 @@ def test_malformed_payload_is_an_error() -> None:
     """A payload that is not JSON is an error, not a crash."""
     response = json.loads(entry.run(b"not json"))
     assert response["status"] == "error"
+
+
+class TestWindowsPaths:  # pylint: disable=too-few-public-methods
+    """Drive paths, which the module's POSIX interpreter would not treat as absolute."""
+
+    FILES = {
+        "C:/tree/Kconfig": 'mainmenu "Win"\n\nconfig A\n\tbool "A"\n\nsource "sub/Kconfig"\n',
+        "C:/tree/sub/Kconfig": 'config B\n\tint "B"\n\tdefault 2\n',
+    }
+
+    def _serve(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Answer requests from `FILES`, as Starlark on Windows would, by host path.
+
+        Natively on Windows the entry joins paths with backslashes; they are
+        looked up with forward slashes, as Bazel would resolve either.
+        """
+        for _ in range(10):
+            response: Dict[str, Any] = json.loads(
+                entry.run(json.dumps(request).encode("utf-8"))
+            )
+            if response["status"] != "need":
+                return response
+            for path in response["files"]:
+                key = path.replace("\\", "/")
+                assert not key.startswith("/"), path
+                content = self.FILES.get(key)
+                request["files"][path] = {
+                    "exists": content is not None,
+                    "is_dir": False,
+                    "content": content,
+                }
+            for path in response["dirs"]:
+                assert not path.replace("\\", "/").startswith("/"), path
+                request["dirs"][path] = None
+            assert not response["shell"]
+        raise AssertionError("the module did not finish")
+
+    def test_paths_are_returned_in_host_form(self) -> None:
+        """Every path asked of Starlark is `C:/...`, never `/C:/...`."""
+        request: Dict[str, Any] = {
+            "command": "repository",
+            "os": "windows 10",
+            "env": {},
+            "srctree": "C:/tree",
+            "srctree_realpath": "C:/tree",
+            "kconfig": "C:/tree/Kconfig",
+            "files": {},
+            "dirs": {},
+            "shell": {},
+            "uname_release": None,
+            "repo_name": "win_kconfig",
+            "defaults": None,
+            "config_ws_path": None,
+            "settings_labels": {},
+            "settings_options": {},
+        }
+        response = self._serve(request)
+        assert response["status"] == "ok", response
+        assert response["manifest"]["files"] == ["Kconfig", "sub/Kconfig"]
+        assert response["manifest"]["root"] == "Kconfig"
+        files = _decoded_files(response)
+        assert (
+            'name = "CONFIG_B",\n    build_setting_default = 2,' in files["BUILD.bazel"]
+        )
+        assert {path.replace("\\", "/") for path in request["files"]} == set(self.FILES)
