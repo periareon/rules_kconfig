@@ -10,7 +10,12 @@ load("@rules_venv//python/wasm:defs.bzl", "py_wasm_module")
 # A release builds `:kconfig_wasm`, attaches it as `kconfig.wasm` and bakes
 # its URL and integrity into `module.bzl`, from where the `kconfig` extension
 # downloads it. The target is `manual`: it fetches a compiler and the CPython
-# devkit, and builds on Linux and macOS.
+# devkit, about 160 MB the first time. rules_venv has that toolchain for
+# Linux, macOS and Windows, embedding the `trampoline` build of CPython from
+# periareon/cpython-wasi-build, the one Bazel's Chicory runtime compiles
+# whole; the stock build's evaluation loop is too large for one JVM method
+# and runs interpreted, which costs an order of magnitude on Python-heavy
+# calls.
 
 py_library(
     name = "entry",
@@ -26,10 +31,6 @@ py_wasm_module(
     entry = "kconfig.private.wasm.entry",
     python_version = "3.14",
     tags = ["manual"],
-    target_compatible_with = select({
-        "@platforms//os:windows": ["@platforms//:incompatible"],
-        "//conditions:default": [],
-    }),
     visibility = ["//visibility:public"],
     exports = ["run"],
     deps = [":entry"],
