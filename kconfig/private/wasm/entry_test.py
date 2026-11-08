@@ -12,7 +12,7 @@ import platform
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from kconfig.private import overrides_gen, repository_gen
 from kconfig.private.wasm import entry
@@ -32,6 +32,8 @@ class Host:  # pylint: disable=too-few-public-methods
     def __init__(self) -> None:
         self.rounds = 0
         self.first_response: Optional[Dict[str, Any]] = None
+        # Every `need` response, in order.
+        self.needs: List[Dict[str, Any]] = []
 
     def run(self, request: Dict[str, Any], max_rounds: int = 32) -> Dict[str, Any]:
         """Call `entry.run` until it answers with something other than `need`."""
@@ -44,6 +46,7 @@ class Host:  # pylint: disable=too-few-public-methods
                 self.first_response = response
             if response["status"] != "need":
                 return response
+            self.needs.append(response)
             for path in response["files"]:
                 request["files"][path] = self._stat(_text(path))
             for path in response["dirs"]:
@@ -248,6 +251,64 @@ class TestRepository:
         assert host.first_response["status"] == "need"
         assert host.first_response["files"] == [_wire(str(tmp_path / "Kconfig"))]
         assert 2 < host.rounds <= 8
+
+    def test_a_round_finds_every_file_at_its_level(self, tmp_path: Path) -> None:
+        """Rounds go by the depth of the tree, not the number of files in it.
+
+        A `source` whose file is not known yet is read as empty rather than
+        ending the round, so one round asks for every file sourced at one
+        level. U-Boot sources about a thousand files and ran out of rounds
+        when each round found one.
+        """
+        tree = {
+            "Kconfig": "".join(f'source "level1/{i}/Kconfig"\n' for i in range(3)),
+        }
+        for i in range(3):
+            tree[f"level1/{i}/Kconfig"] = (
+                f"config L1_{i}\n\tbool\n" + f'source "level2/{i}/Kconfig"\n'
+            )
+            tree[f"level2/{i}/Kconfig"] = f"config L2_{i}\n\tbool\n\tdefault y\n"
+        _write_tree(tmp_path, tree)
+        host = Host()
+        response = host.run(
+            _request(
+                "repository",
+                tmp_path / "Kconfig",
+                repo_name="test_kconfig",
+                defaults=None,
+                config_ws_path=None,
+                settings_labels={},
+                settings_options={},
+            )
+        )
+        assert response["status"] == "ok"
+        assert [
+            sorted({Path(_text(f)) for f in need["files"]}) for need in host.needs
+        ] == [
+            [tmp_path / "Kconfig"],
+            [tmp_path / f"level1/{i}/Kconfig" for i in range(3)],
+            [tmp_path / f"level2/{i}/Kconfig" for i in range(3)],
+        ]
+        assert sorted(response["manifest"]["files"]) == sorted(tree)
+
+    def test_missing_source_is_an_error(self, tmp_path: Path) -> None:
+        """A `source` of a file that does not exist fails as it does natively."""
+        _write_tree(tmp_path, {"Kconfig": 'source "nowhere/Kconfig"\n'})
+        host = Host()
+        response = host.run(
+            _request(
+                "repository",
+                tmp_path / "Kconfig",
+                repo_name="test_kconfig",
+                defaults=None,
+                config_ws_path=None,
+                settings_labels={},
+                settings_options={},
+            )
+        )
+        assert response["status"] == "error"
+        assert "nowhere/Kconfig" in _text(response["message"])
+        assert "not found" in _text(response["message"])
 
     def test_defaults(self, tmp_path: Path) -> None:
         """A `.config` of defaults is read through the host and rendered."""

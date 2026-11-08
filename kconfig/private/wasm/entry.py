@@ -166,6 +166,21 @@ class Host:
         info = self.stat(path)
         return bool(info and info.get("exists"))
 
+    def may_exist(self, path: str) -> bool:
+        """Whether the file exists, or is not known yet.
+
+        What `iglob` goes by for a path without wildcards: kconfiglib raises
+        an error for a `source` that matches nothing, which would end the
+        round at the first unknown file and leave every file after it for a
+        later round, one round per file. Yielding an unknown path instead
+        lets it be opened, and read as empty until it is provided, so that a
+        round finds every file at its level of the tree at once. Once a path
+        is known to be missing it is not yielded, so an `osource` of it is
+        quiet and a `source` of it is the error it should be.
+        """
+        info = self.stat(path)
+        return info is None or bool(info.get("exists"))
+
     def isdir(self, path: str) -> bool:
         """Whether the path is a directory; False while unknown."""
         info = self.stat(path)
@@ -235,7 +250,7 @@ class Host:
         dirname, basename = os.path.split(pathname)
         if not glob.has_magic(pathname):
             if basename:
-                if self.exists(pathname):
+                if self.may_exist(pathname):
                     yield pathname
             elif self.isdir(dirname):
                 yield pathname
@@ -263,7 +278,7 @@ class Host:
 
     def _glob0(self, dirname: str, basename: str, _dironly: bool) -> List[str]:
         if basename:
-            if self.exists(os.path.join(dirname, basename)):
+            if self.may_exist(os.path.join(dirname, basename)):
                 return [basename]
         elif self.isdir(dirname):
             return [basename]
