@@ -1,0 +1,71 @@
+# The U-Boot tree as this example reads it: the Kconfig files, the boards'
+# defconfigs, and U-Boot's own `scripts/kconfig/conf` built from the tree, the
+# command lines of scripts/kconfig/Makefile and scripts/Makefile.lib. U-Boot's
+# kconfig is an older kernel one: zconf.tab.c includes zconf.lex.c and
+# kconf_id.c.
+
+load("@bison//:bison.bzl", "bison")
+load("@flex//:flex.bzl", "flex")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Kconfig"] + glob(["configs/*"]))
+
+# Every Kconfig file (scripts/Kconfig.include among them) and the scripts
+# they run.
+filegroup(
+    name = "kconfig_files",
+    srcs = glob([
+        "**/Kconfig*",
+        "scripts/*.sh",
+    ]),
+)
+
+bison(
+    name = "zconf.tab",
+    srcs = ["scripts/kconfig/zconf.y"],
+    outs = ["scripts/kconfig/zconf.tab.c"],
+    args = [
+        "-o",
+        "$(execpath scripts/kconfig/zconf.tab.c)",
+        "-t",
+        "-l",
+        "$(execpath scripts/kconfig/zconf.y)",
+    ],
+)
+
+flex(
+    name = "zconf.lex",
+    srcs = ["scripts/kconfig/zconf.l"],
+    outs = ["scripts/kconfig/zconf.lex.c"],
+    args = [
+        "-o",
+        "$(execpath scripts/kconfig/zconf.lex.c)",
+        "-L",
+        "$(execpath scripts/kconfig/zconf.l)",
+    ],
+)
+
+cc_library(
+    name = "kconfig",
+    srcs = [":zconf.tab"],
+    hdrs = glob(["scripts/kconfig/*.h"]) + [
+        "scripts/kconfig/confdata.c",
+        "scripts/kconfig/expr.c",
+        "scripts/kconfig/kconf_id.c",
+        "scripts/kconfig/menu.c",
+        "scripts/kconfig/preprocess.c",
+        "scripts/kconfig/symbol.c",
+        "scripts/kconfig/util.c",
+        ":zconf.lex",
+    ],
+    copts = ["-DYYDEBUG=1"],
+    includes = ["scripts/kconfig"],
+)
+
+cc_binary(
+    name = "conf",
+    srcs = ["scripts/kconfig/conf.c"],
+    deps = [":kconfig"],
+)

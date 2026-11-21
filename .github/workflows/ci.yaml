@@ -38,7 +38,10 @@ jobs:
         run: |
           echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
           echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
-          echo "startup --output_user_root=D:/bzl" > ./user.bazelrc
+          # The short output root on the runner's data drive; windows-11-arm has
+          # none, and C: serves.
+          $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
+          echo "startup --output_user_root=$root" > ./user.bazelrc
         if: startswith(runner.os, 'Windows')
       - name: Setup Bazelrc
         run: |
@@ -52,8 +55,15 @@ jobs:
         run: bazel $env:BAZEL_STARTUP_FLAGS test //...
         if: startswith(runner.os, 'Windows')
 
+  # The examples, each on the default Bazel with the native build of the
+  # parser for the host (a source checkout carries none, so the one
+  # `ci-tool-build` made is named with `RULES_KCONFIG_TOOL`). `upstream`
+  # fetches the Linux and U-Boot trees and runs their scripts, so not on
+  # Windows.
   ci-examples:
     runs-on: ${{ matrix.os }}
+    needs:
+      - ci-tool-build
     strategy:
       fail-fast: false
       matrix:
@@ -66,6 +76,19 @@ jobs:
           - simple
           - overrides
           - settings_labels
+          - upstream
+        include:
+          - os: macos-latest
+            key: macos-aarch64
+          - os: ubuntu-24.04
+            key: linux-x86_64
+          - os: ubuntu-24.04-arm
+            key: linux-aarch64
+          - os: windows-2022
+            key: windows-x86_64
+        exclude:
+          - os: windows-2022
+            example: upstream
     steps:
       # Checkout the code
       - uses: actions/checkout@v4
@@ -81,20 +104,35 @@ jobs:
         run: |
           echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
           echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
-          echo "startup --output_user_root=D:/bzl" > ./user.bazelrc
+          # The short output root on the runner's data drive; windows-11-arm has
+          # none, and C: serves.
+          $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
+          echo "startup --output_user_root=$root" > ./user.bazelrc
         if: startswith(runner.os, 'Windows')
       - name: Setup Bazelrc
         run: |
           echo "common --keep_going" >> ./user.bazelrc
 
+      # The native build for this host.
+      - uses: actions/download-artifact@v4
+        with:
+          name: kconfig_tool-${{ matrix.key }}
+          path: ${{ runner.temp }}/kconfig_tool
+
       # Build and Test the code
       - name: Test (Unix)
         working-directory: "${{ github.workspace }}/examples/${{ matrix.example }}"
-        run: bazel ${BAZEL_STARTUP_FLAGS[@]} test //...
+        run: |
+          chmod +x "${RUNNER_TEMP}"/kconfig_tool/kconfig_tool-*
+          bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
+            --repo_env=RULES_KCONFIG_TOOL="${RUNNER_TEMP}/kconfig_tool/kconfig_tool-${{ matrix.key }}"
         if: startswith(runner.os, 'Windows') != true
       - name: Test (Windows)
         working-directory: "${{ github.workspace }}/examples/${{ matrix.example }}"
-        run: bazel $env:BAZEL_STARTUP_FLAGS test //...
+        run: |
+          $tool = "$env:RUNNER_TEMP/kconfig_tool/kconfig_tool-${{ matrix.key }}.exe" -replace '\\', '/'
+          & bazel $env:BAZEL_STARTUP_FLAGS test //... "--repo_env=RULES_KCONFIG_TOOL=$tool"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         if: startswith(runner.os, 'Windows')
 
   # The WebAssembly backend, the way a release produces and uses it: the
@@ -103,18 +141,16 @@ jobs:
   # and the example repositories are generated with it on every host, on a
   # Bazel that has `execute_wasm`, pointed at it by `RULES_KCONFIG_WASM`.
   #
-  # Building fetches a toolchain (CPython for wasm32-wasi, a wasi-sdk and
-  # Wizer); running the module needs nothing, so the two are separate jobs
-  # and the examples take the one module built on Linux.
+  # Building fetches toolchains (Rust with the wasm32-wasip1 target, and the
+  # wasi-sdk for the kernel's C); running the module needs nothing, so the two
+  # are separate jobs and the examples take the one module built on Linux.
   ci-wasm-build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os:
-          - macos-latest
           - ubuntu-24.04
-          - windows-2022
     env:
       USE_BAZEL_VERSION: 9.x
     steps:
@@ -125,27 +161,11 @@ jobs:
           disk-cache: ${{ github.workflow }}
           repository-cache: true
 
-      - name: Setup Bazelrc (Windows)
+      - name: Build the module
         run: |
-          echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
-          echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
-          echo "startup --output_user_root=D:/bzl" > ./user.bazelrc
-        if: startswith(runner.os, 'Windows')
-
-      - name: Build the module (Unix)
-        if: startswith(runner.os, 'Windows') != true
-        run: |
-          bazel ${BAZEL_STARTUP_FLAGS[@]} build //kconfig/private/wasm:kconfig_wasm
-          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery --output=files //kconfig/private/wasm:kconfig_wasm)" "${RUNNER_TEMP}/kconfig.wasm"
+          bazel ${BAZEL_STARTUP_FLAGS[@]} build --config=wasm32 -c opt //kconfig/private/parser:kconfig_wasm //tools/wasi_sdk/test:hello
+          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery --config=wasm32 -c opt --output=files //kconfig/private/parser:kconfig_wasm)" "${RUNNER_TEMP}/kconfig.wasm"
           echo "integrity: sha256-$(shasum --algorithm 256 "${RUNNER_TEMP}/kconfig.wasm" | awk '{ print $1 }' | xxd -r -p | base64)"
-      - name: Build the module (Windows)
-        if: startswith(runner.os, 'Windows')
-        run: |
-          & bazel $env:BAZEL_STARTUP_FLAGS build //kconfig/private/wasm:kconfig_wasm
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $module = & bazel $env:BAZEL_STARTUP_FLAGS cquery --output=files //kconfig/private/wasm:kconfig_wasm
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item $module "$env:RUNNER_TEMP/kconfig.wasm"
 
       - name: Publish the module
         uses: actions/upload-artifact@v4
@@ -154,17 +174,79 @@ jobs:
           path: ${{ runner.temp }}/kconfig.wasm
           if-no-files-found: error
 
-  ci-wasm:
-    needs: ci-wasm-build
+  # The native builds of the parser, one per platform, the way a release
+  # produces them (release.yaml's `binaries` job): `kconfig_tool-<os>-<cpu>`,
+  # for the Bazels that cannot run the module.
+  ci-tool-build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
-          - windows-2022
+        include:
+          - os: macos-latest
+            key: macos-aarch64
+          - os: ubuntu-24.04
+            key: linux-x86_64
+          - os: ubuntu-24.04-arm
+            key: linux-aarch64
+          - os: windows-2022
+            key: windows-x86_64
+          # - os: windows-11-arm
+          #   key: windows-aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - name: Setup Bazelrc (Windows)
+        run: |
+          echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
+          echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
+          # The short output root on the runner's data drive; windows-11-arm has
+          # none, and C: serves.
+          $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
+          echo "startup --output_user_root=$root" > ./user.bazelrc
+        if: startswith(runner.os, 'Windows')
+
+      - name: Build the native parser (Unix)
+        if: startswith(runner.os, 'Windows') != true
+        run: |
+          bazel ${BAZEL_STARTUP_FLAGS[@]} build -c opt //kconfig/private/parser:kconfig_tool
+          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery -c opt --output=files //kconfig/private/parser:kconfig_tool)" "${RUNNER_TEMP}/kconfig_tool-${{ matrix.key }}"
+      - name: Build the native parser (Windows)
+        if: startswith(runner.os, 'Windows')
+        run: |
+          & bazel $env:BAZEL_STARTUP_FLAGS build -c opt //kconfig/private/parser:kconfig_tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tool = & bazel $env:BAZEL_STARTUP_FLAGS cquery -c opt --output=files //kconfig/private/parser:kconfig_tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item $tool "$env:RUNNER_TEMP/kconfig_tool-${{ matrix.key }}.exe"
+
+      - name: Publish the native parser
+        uses: actions/upload-artifact@v4
+        with:
+          name: kconfig_tool-${{ matrix.key }}
+          path: ${{ runner.temp }}/kconfig_tool-${{ matrix.key }}*
+          if-no-files-found: error
+
+  ci-wasm:
+    needs: [ci-wasm-build, ci-tool-build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            key: macos-aarch64
+          - os: ubuntu-24.04
+            key: linux-x86_64
+          - os: ubuntu-24.04-arm
+            key: linux-aarch64
+          - os: windows-2022
+            key: windows-x86_64
     env:
       USE_BAZEL_VERSION: 9.x
     steps:
@@ -179,7 +261,10 @@ jobs:
         run: |
           echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
           echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
-          echo "startup --output_user_root=D:/bzl" > ./user.bazelrc
+          # The short output root on the runner's data drive; windows-11-arm has
+          # none, and C: serves.
+          $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
+          echo "startup --output_user_root=$root" > ./user.bazelrc
         if: startswith(runner.os, 'Windows')
       - name: Setup Bazelrc
         run: |
@@ -190,16 +275,17 @@ jobs:
         with:
           name: kconfig.wasm-ubuntu-24.04
           path: ${{ runner.temp }}/kconfig_wasm
+      # The native build for this host.
+      - uses: actions/download-artifact@v4
+        with:
+          name: kconfig_tool-${{ matrix.key }}
+          path: ${{ runner.temp }}/kconfig_tool
 
-      # The examples name an `interpreter` so that they also run where the
-      # module cannot; it is dropped here so that a fall-back to the Python
-      # backend would fail rather than pass unnoticed. Windows runs Bazel from
-      # its native shell, like the other jobs, so that the run is what a
-      # Windows user gets.
+      # Windows runs Bazel from its native shell, like the other jobs, so that
+      # the run is what a Windows user gets.
       - name: Generate the example repositories with the module (Unix)
         if: startswith(runner.os, 'Windows') != true
         run: |
-          sed -i.bak '/interpreter = /d' examples/*/MODULE.bazel
           for example in simple overrides settings_labels; do
             echo "::group::${example}"
             (cd "examples/${example}" && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
@@ -207,18 +293,52 @@ jobs:
               --repo_env=RULES_KCONFIG_WASM="${RUNNER_TEMP}/kconfig_wasm/kconfig.wasm")
             echo "::endgroup::"
           done
+      # The Linux and U-Boot trees through the module: interpreted, the
+      # kernel's tree takes the module a few minutes per repository, so on
+      # Linux only.
+      - name: Generate the upstream repositories with the module (Linux)
+        if: startswith(runner.os, 'Linux')
+        run: |
+          (cd examples/upstream && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
+            --experimental_repository_ctx_execute_wasm \
+            --repo_env=RULES_KCONFIG_WASM="${RUNNER_TEMP}/kconfig_wasm/kconfig.wasm")
       - name: Generate the example repositories with the module (Windows)
         if: startswith(runner.os, 'Windows')
         run: |
           $module = "$env:RUNNER_TEMP/kconfig_wasm/kconfig.wasm" -replace '\\', '/'
-          foreach ($file in Get-ChildItem examples/*/MODULE.bazel) {
-            (Get-Content $file) | Where-Object { $_ -notmatch 'interpreter = ' } | Set-Content $file
-          }
           foreach ($example in @("simple", "overrides", "settings_labels")) {
             Write-Output "::group::$example"
             Push-Location "examples/$example"
             try {
               & bazel $env:BAZEL_STARTUP_FLAGS test //... --experimental_repository_ctx_execute_wasm "--repo_env=RULES_KCONFIG_WASM=$module"
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } finally {
+              Pop-Location
+              Write-Output "::endgroup::"
+            }
+          }
+
+      # The same with the native build, which any Bazel can run: without
+      # `execute_wasm` enabled the rules take it.
+      - name: Generate the example repositories with the native build (Unix)
+        if: startswith(runner.os, 'Windows') != true
+        run: |
+          chmod +x "${RUNNER_TEMP}"/kconfig_tool/kconfig_tool-*
+          for example in simple overrides settings_labels upstream; do
+            echo "::group::${example}"
+            (cd "examples/${example}" && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
+              --repo_env=RULES_KCONFIG_TOOL="${RUNNER_TEMP}/kconfig_tool/kconfig_tool-${{ matrix.key }}")
+            echo "::endgroup::"
+          done
+      - name: Generate the example repositories with the native build (Windows)
+        if: startswith(runner.os, 'Windows')
+        run: |
+          $tool = "$env:RUNNER_TEMP/kconfig_tool/kconfig_tool-${{ matrix.key }}.exe" -replace '\\', '/'
+          foreach ($example in @("simple", "overrides", "settings_labels")) {
+            Write-Output "::group::$example"
+            Push-Location "examples/$example"
+            try {
+              & bazel $env:BAZEL_STARTUP_FLAGS test //... "--repo_env=RULES_KCONFIG_TOOL=$tool"
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             } finally {
               Pop-Location

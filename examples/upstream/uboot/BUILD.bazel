@@ -1,0 +1,36 @@
+# U-Boot v2025.10: the repositories generated from its Kconfig tree against
+# U-Boot's own `conf`, and the `config.h` they provide.
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//:defs.bzl", "kconfig_conf_test")
+load(":env.bzl", "U_BOOT_ENV")
+
+[
+    kconfig_conf_test(
+        name = name,
+        srcs = "@u_boot//:kconfig_files",
+        conf = "@u_boot//:conf",
+        defconfig = defconfig,
+        env = U_BOOT_ENV,
+        kconfig = "@u_boot//:Kconfig",
+        repo = repo,
+    )
+    for name, repo, defconfig in [
+        ("qemu_arm64_defconfig", "@u_boot_qemu_arm64", "@u_boot//:configs/qemu_arm64_defconfig"),
+        ("qemu_x86_64_defconfig", "@u_boot_qemu_x86_64", "@u_boot//:configs/qemu-x86_64_defconfig"),
+        ("alldefconfig", "@u_boot_alldefconfig", None),
+    ]
+]
+
+[
+    cc_test(
+        name = name + "_config_h_test",
+        srcs = ["test_config.c"],
+        local_defines = [expect],
+        deps = [repo + "//:config"],
+    )
+    for name, repo, expect in [
+        ("qemu_arm64_defconfig", "@u_boot_qemu_arm64", "EXPECT_QEMU_ARM64"),
+        ("qemu_x86_64_defconfig", "@u_boot_qemu_x86_64", "EXPECT_QEMU_X86_64"),
+    ]
+]

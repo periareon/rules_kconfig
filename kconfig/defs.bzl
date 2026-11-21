@@ -17,14 +17,14 @@ kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.repo(
     name = "my_kconfig",
     kconfig = "//:Kconfig",
-    interpreter = "@python_3_14_host//:python",
 )
 use_repo(kconfig, "my_kconfig")
 ```
 
-The `interpreter` is used by the Python backend. On Bazel 9.3 or newer with
-`--experimental_repository_ctx_execute_wasm`, a release of rules_kconfig parses
-with the WebAssembly module it publishes instead, and no interpreter is needed.
+The tree is parsed by the Linux kernel's Kconfig parser, which a release of
+rules_kconfig publishes as a WebAssembly module (Bazel 9.3 or newer with
+`--experimental_repository_ctx_execute_wasm`) and as a native build per
+platform; no Python interpreter is needed.
 
 Use `kconfig.overrides` to overlay a `.config` file onto an external kconfig
 repository via a Starlark transition:
@@ -34,7 +34,6 @@ kconfig.overrides(
     name = "my_board_config",
     kconfig = "@ext_kconfig//:ext_kconfig",
     config = "//:.config",
-    interpreter = "@python_3_14_host//:python",
 )
 use_repo(kconfig, "my_board_config")
 ```
@@ -71,6 +70,10 @@ load(
     _kconfig_toolchain = "kconfig_toolchain",
 )
 load(
+    ":make_variable_setting.bzl",
+    _make_variable_setting = "make_variable_setting",
+)
+load(
     ":menuconfig.bzl",
     _menuconfig = "menuconfig",
 )
@@ -82,4 +85,5 @@ kconfig_repository = _kconfig_repository
 kconfig_toolchain = _kconfig_toolchain
 KConfigInfo = _KConfigInfo
 KconfigSettingsInfo = _KconfigSettingsInfo
+make_variable_setting = _make_variable_setting
 menuconfig = _menuconfig

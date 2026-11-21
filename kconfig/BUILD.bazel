@@ -9,6 +9,7 @@ exports_files([
     "kconfig_overrides_repository.bzl",
     "kconfig_repository.bzl",
     "kconfig_toolchain.bzl",
+    "make_variable_setting.bzl",
     "menuconfig.bzl",
 ])
 
@@ -21,5 +22,8 @@ bzl_library(
     name = "bzl_lib",
     srcs = glob(["*.bzl"]),
     visibility = ["//visibility:public"],
-    deps = ["//kconfig/private:bzl_lib"],
+    deps = [
+        "//kconfig/private:bzl_lib",
+        "//kconfig/private/parser/kernel:bzl_lib",
+    ],
 )

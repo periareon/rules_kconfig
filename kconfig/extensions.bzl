@@ -3,7 +3,8 @@
 load("//kconfig:kconfig_overrides_repository.bzl", "kconfig_overrides_repository")
 load("//kconfig:kconfig_repository.bzl", "kconfig_repository")
 load("//kconfig/private:kconfiglib.bzl", "kconfiglib_repository")
-load("//kconfig/private:wasm_backend.bzl", "kconfig_wasm_repository", "wasm_module_location")
+load("//kconfig/private:parser_backend.bzl", "kconfig_parser_repository", "parser_location", "tool_filename")
+load("//kconfig/private/parser/kernel:repository.bzl", "kernel_kconfig_repository")
 
 _LOAD = tag_class(
     doc = "Declare a kconfig repository to be generated from a Kconfig file tree.",
@@ -11,14 +12,24 @@ _LOAD = tag_class(
         "defaults": attr.label(
             doc = "Optional .config file providing default overrides for Kconfig symbols.",
         ),
-        "interpreter": attr.label(
+        "env": attr.string_dict(
             doc = """\
-A Python interpreter target used to run the Kconfig parser (e.g. `@python_3_14_host//:python`).
-
-Not needed on Bazel 9.3 or newer with `--experimental_repository_ctx_execute_wasm`,
-where a release of rules_kconfig parses with its WebAssembly module instead;
-required otherwise.
+Environment variables for the Kconfig tree: what `$(NAME)` and `option env`
+read, and the environment of `$(shell,...)` commands, over the repository
+rule's own environment (`--repo_env`). The kernel's tree reads `ARCH`,
+`SRCARCH`, `CC`, `LD` and others its Makefile exports, so that several
+architectures' repositories can be generated in one workspace.
 """,
+            default = {},
+        ),
+        "env_labels": attr.label_keyed_string_dict(
+            doc = """\
+Files as environment variables for the Kconfig tree, each label mapped to
+the name of its variable: a downloaded toolchain's compiler as `CC`, for
+the tree's `$(shell,...)` probes to run (`{"@llvm_toolchain_llvm//:bin/clang": "CC"}`).
+The label's path is the value, over `env`.
+""",
+            default = {},
         ),
         "kconfig": attr.label(
             doc = "The root Kconfig file to parse. All files referenced via `source` directives are followed automatically.",
@@ -51,9 +62,6 @@ _OVERRIDES = tag_class(
             doc = ".config file with override values.",
             mandatory = True,
         ),
-        "interpreter": attr.label(
-            doc = "A Python interpreter target (e.g. `@python_3_14_host//:python`). See `kconfig.repo`.",
-        ),
         "kconfig": attr.label(
             doc = "Label to the kconfig manifest from the source repository (e.g. `@ext_kconfig//:ext_kconfig`).",
             mandatory = True,
@@ -66,22 +74,39 @@ _OVERRIDES = tag_class(
 )
 
 def _kconfig_impl(module_ctx):
+    # kconfiglib, for `menuconfig`.
     kconfiglib_repository(
         name = "kconfiglib",
     )
 
-    # The WebAssembly backend of this release, or the one `RULES_KCONFIG_WASM`
-    # names; fetched only when a repository is generated with it.
+    # The kernel's parser, for building the WebAssembly module; fetched only
+    # when it is.
+    kernel_kconfig_repository(
+        name = "kernel_kconfig",
+    )
+
+    # The parser's builds of this release the host can use, or the ones
+    # `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name; fetched only when a
+    # repository is generated with them.
     wasm_module = None
-    location = wasm_module_location(module_ctx)
-    if location != None:
-        kconfig_wasm_repository(
-            name = "kconfig_wasm",
-            integrity = location.integrity,
-            path = location.path,
-            url = location.url,
+    tool = None
+    location = parser_location(module_ctx)
+    if location.wasm != None or location.tool != None:
+        wasm = location.wasm or struct(url = None, integrity = "", path = None)
+        native = location.tool or struct(url = None, integrity = "", path = None)
+        kconfig_parser_repository(
+            name = "kconfig_parser",
+            tool_integrity = native.integrity,
+            tool_path = native.path,
+            tool_url = native.url,
+            wasm_integrity = wasm.integrity,
+            wasm_path = wasm.path,
+            wasm_url = wasm.url,
         )
-        wasm_module = "@kconfig_wasm//:kconfig.wasm"
+        if location.wasm != None:
+            wasm_module = "@kconfig_parser//:kconfig.wasm"
+        if location.tool != None:
+            tool = "@kconfig_parser//:" + tool_filename(module_ctx)
 
     for module in module_ctx.modules:
         for tag in getattr(module.tags, "repo", []):
@@ -91,11 +116,12 @@ def _kconfig_impl(module_ctx):
                 name = tag.name,
                 apparent_name = tag.name,
                 defaults = tag.defaults,
+                env = tag.env,
+                env_labels = tag.env_labels,
                 kconfig = tag.kconfig,
-                kconfiglib_anchor = "@kconfiglib//:BUILD.bazel",
-                interpreter = tag.interpreter,
                 settings_labels = settings_labels,
                 settings_options = tag.settings_options,
+                tool = tool,
                 wasm_module = wasm_module,
             )
 
@@ -104,8 +130,7 @@ def _kconfig_impl(module_ctx):
                 name = tag.name,
                 kconfig = tag.kconfig,
                 config = tag.config,
-                kconfiglib_anchor = "@kconfiglib//:BUILD.bazel",
-                interpreter = tag.interpreter,
+                tool = tool,
                 wasm_module = wasm_module,
             )
 

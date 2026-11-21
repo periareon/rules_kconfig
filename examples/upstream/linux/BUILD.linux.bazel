@@ -1,0 +1,82 @@
+# The Linux tree as this example reads it: the Kconfig files, and the kernel's
+# own `scripts/kconfig/conf` built from the tree, the command lines of
+# scripts/kconfig/Makefile and scripts/Makefile.lib (`cmd_bison`, `cmd_flex`).
+
+load("@bison//:bison.bzl", "bison")
+load("@flex//:flex.bzl", "flex")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Kconfig"])
+
+# What configuring reads: every Kconfig file (scripts/Kconfig.include among
+# them), the scripts they run and the dummy tools that answer for the
+# toolchain.
+filegroup(
+    name = "kconfig_files",
+    srcs = glob([
+        "**/Kconfig*",
+        "scripts/*.sh",
+        "scripts/dummy-tools/**",
+    ]),
+)
+
+bison(
+    name = "parser.tab",
+    srcs = ["scripts/kconfig/parser.y"],
+    outs = [
+        "scripts/kconfig/parser.tab.c",
+        "scripts/kconfig/parser.tab.h",
+    ],
+    args = [
+        "-o",
+        "$(execpath scripts/kconfig/parser.tab.c)",
+        "--defines=$(execpath scripts/kconfig/parser.tab.h)",
+        "-t",
+        "-l",
+        "$(execpath scripts/kconfig/parser.y)",
+    ],
+)
+
+flex(
+    name = "lexer.lex",
+    srcs = ["scripts/kconfig/lexer.l"],
+    outs = ["scripts/kconfig/lexer.lex.c"],
+    args = [
+        "-o",
+        "$(execpath scripts/kconfig/lexer.lex.c)",
+        "-L",
+        "$(execpath scripts/kconfig/lexer.l)",
+    ],
+)
+
+cc_library(
+    name = "kconfig",
+    srcs = [
+        "scripts/kconfig/confdata.c",
+        "scripts/kconfig/expr.c",
+        "scripts/kconfig/menu.c",
+        "scripts/kconfig/preprocess.c",
+        "scripts/kconfig/symbol.c",
+        "scripts/kconfig/util.c",
+        ":lexer.lex",
+        ":parser.tab",
+    ],
+    hdrs = glob([
+        "scripts/include/*.h",
+        "scripts/kconfig/*.h",
+    ]),
+    # The kernel runs bison with `-t`; parser.y refers to `yydebug`.
+    copts = ["-DYYDEBUG=1"],
+    includes = [
+        "scripts/include",
+        "scripts/kconfig",
+    ],
+)
+
+cc_binary(
+    name = "conf",
+    srcs = ["scripts/kconfig/conf.c"],
+    deps = [":kconfig"],
+)

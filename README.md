@@ -8,8 +8,9 @@ Additional documentation can be found at <https://periareon.github.io/rules_kcon
 
 ## Backends
 
-Kconfig trees are parsed by [kconfiglib](https://github.com/ulfalizer/Kconfiglib),
-either inside the WebAssembly module each release publishes (Bazel 9.3 or newer with
-`--experimental_repository_ctx_execute_wasm`; no Python interpreter needed) or on
-a Python interpreter named by the `interpreter` attribute. See the documentation
-for details.
+Kconfig trees are parsed by the Linux kernel's own parser, which each release
+publishes as a WebAssembly module (Bazel 9.3 or newer with
+`--experimental_repository_ctx_execute_wasm`) and as a native build per
+platform; no Python interpreter is needed. Both generate the same repository,
+and the same one [kconfiglib](https://github.com/ulfalizer/Kconfiglib)
+generated before the parser replaced it. See the documentation for details.

@@ -1,0 +1,128 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag", "string_flag")
+exports_files(glob(["kconfig_srcs/**"]) + ["test_kconfig", "kconfig.manifest.json", "rendered.config"])
+bool_flag(
+    name = "CONFIG_FOO",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+int_flag(
+    name = "CONFIG_COUNT",
+    build_setting_default = 3,
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_LABEL",
+    build_setting_default = "hello",
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_BASE_ADDR",
+    build_setting_default = "0x1000",
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_NUMERIC_STRING",
+    build_setting_default = "42",
+    visibility = ["//visibility:public"],
+)
+bool_flag(
+    name = "CONFIG_MODULES",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_TRISTATE",
+    build_setting_default = "n",
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig/private:kconfig_autoconf.bzl", "kconfig_autoconf")
+load("@rules_kconfig//kconfig/private:kconfig_savedefconfig.bzl", "kconfig_savedefconfig")
+load("@rules_kconfig//kconfig/private:kconfig_settings_group.bzl", "kconfig_settings_group")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+
+kconfig_settings_group(
+    name = "settings",
+    settings = [
+        ":CONFIG_FOO",
+        ":CONFIG_COUNT",
+        ":CONFIG_LABEL",
+        ":CONFIG_BASE_ADDR",
+        ":CONFIG_NUMERIC_STRING",
+        ":CONFIG_MODULES",
+        ":CONFIG_TRISTATE",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_autoconf(
+    name = "autoconf",
+    settings = [
+        ":CONFIG_FOO",
+        ":CONFIG_COUNT",
+        ":CONFIG_LABEL",
+        ":CONFIG_BASE_ADDR",
+        ":CONFIG_NUMERIC_STRING",
+        ":CONFIG_MODULES",
+        ":CONFIG_TRISTATE",
+    ],
+    types = {
+        "CONFIG_FOO": "bool",
+        "CONFIG_COUNT": "int",
+        "CONFIG_LABEL": "string",
+        "CONFIG_BASE_ADDR": "hex",
+        "CONFIG_NUMERIC_STRING": "string",
+        "CONFIG_MODULES": "bool",
+        "CONFIG_TRISTATE": "tristate",
+    },
+    visibility = ["//visibility:public"],
+)
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config.h.in",
+    deps = [":autoconf"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "config",
+    hdrs = ["config.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_savedefconfig(
+    name = "savedefconfig",
+    settings = [
+        ":CONFIG_FOO",
+        ":CONFIG_COUNT",
+        ":CONFIG_LABEL",
+        ":CONFIG_BASE_ADDR",
+        ":CONFIG_NUMERIC_STRING",
+        ":CONFIG_MODULES",
+        ":CONFIG_TRISTATE",
+    ],
+    defaults = {
+        "CONFIG_FOO": "False",
+        "CONFIG_COUNT": "3",
+        "CONFIG_LABEL": "hello",
+        "CONFIG_BASE_ADDR": "0x1000",
+        "CONFIG_NUMERIC_STRING": "42",
+        "CONFIG_MODULES": "True",
+        "CONFIG_TRISTATE": "n",
+    },
+    types = {
+        "CONFIG_TRISTATE": "tristate",
+    },
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig:kconfig_library.bzl", "kconfig_library")
+
+kconfig_library(
+    name = "lib",
+    root = "kconfig_srcs/Kconfig",
+    srcs = glob(["kconfig_srcs/**"]),
+    visibility = ["//visibility:public"],
+)

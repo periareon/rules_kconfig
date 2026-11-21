@@ -1,0 +1,96 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_shared_library", "rust_test")
+load("@rules_venv//python/pytest:defs.bzl", "py_pytest_test")
+
+# The parser the repository rules run: the Linux kernel's Kconfig parser
+# (fetched by kernel/repository.bzl) behind shim.c, and the generators in
+# Rust, as a WebAssembly module Bazel runs through
+# `repository_ctx.execute_wasm`. See src/lib.rs for the protocol.
+#
+# `:kconfig_wasm` is built for `wasm32-wasip1` (`--config=wasm32`), with the
+# wasi-sdk toolchain of //tools/wasi_sdk for the C and rules_rust's toolchain
+# for the Rust; a release attaches it as `kconfig.wasm`, which module.bzl
+# names. `:kconfig_tool` is the same code as a native program, which the tests
+# run against the Python backend, and which a release attaches per platform
+# as `kconfig_tool-<os>-<cpu>` for the Bazels that cannot run the module.
+
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+# The kernel's parser behind the functions of shim.h, with the host functions
+# its libc calls are renamed to. Inside the module nothing may be imported, so
+# the WASI functions wasi-libc and Rust's std import are compiled in as stubs.
+cc_library(
+    name = "shim",
+    srcs = ["shim.c"] + select({
+        "@platforms//os:wasi": ["wasi_stubs.c"],
+        "//conditions:default": [],
+    }),
+    hdrs = ["shim.h"],
+    deps = [
+        "//kconfig/private/parser/kernel:host",
+        "@kernel_kconfig//:kconfig",
+    ] + select({
+        "@platforms//os:windows": ["//kconfig/private/parser/kernel:compat_windows"],
+        "//conditions:default": [],
+    }),
+)
+
+rust_library(
+    name = "kconfig",
+    srcs = glob(
+        ["src/*.rs"],
+        exclude = [
+            "src/main.rs",
+            "src/wasm.rs",
+        ],
+    ),
+    crate_root = "src/lib.rs",
+    link_deps = [":shim"],
+    deps = [
+        "@crates//:indexmap",
+        "@crates//:libc",
+        "@crates//:serde",
+        "@crates//:serde_bytes",
+        "@crates//:serde_json",
+    ],
+)
+
+rust_test(
+    name = "kconfig_test",
+    crate = ":kconfig",
+)
+
+rust_binary(
+    name = "kconfig_tool",
+    srcs = ["src/main.rs"],
+    deps = [":kconfig"],
+)
+
+rust_shared_library(
+    name = "kconfig_wasm",
+    srcs = ["src/wasm.rs"],
+    crate_root = "src/wasm.rs",
+    target_compatible_with = ["@platforms//os:wasi"],
+    visibility = ["//visibility:public"],
+    deps = [":kconfig"],
+)
+
+# The parser run natively against its golden files, tree by tree; see
+# parser_test.py.
+py_pytest_test(
+    name = "parser_test",
+    srcs = ["parser_test.py"],
+    data = [":kconfig_tool"] + glob(["testdata/**"]),
+    env = {"KCONFIG_TOOL": "$(rlocationpath :kconfig_tool)"},
+    deps = ["@rules_venv//python/runfiles"],
+)
+
+bzl_library(
+    name = "bzl_lib",
+    srcs = glob(["*.bzl"]) + ["//:version.bzl"],
+    visibility = ["//kconfig/private:__pkg__"],
+)

@@ -1,0 +1,37 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# The kernel's parser is compiled only when the module is built,
+# from the `kernel_kconfig` repository (see repository.bzl); bison and flex
+# are dev dependencies, the BCR builds of the tools, whose own rules run them.
+
+# What `kernel_kconfig_repository` writes into the fetched sources.
+exports_files([
+    "BUILD.linux_kconfig.bazel",
+    "kconfiglib_dialect.patch",
+])
+
+# The host interface the parser is compiled against; see host.h.
+cc_library(
+    name = "host",
+    hdrs = ["host.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+# The POSIX headers the kernel's sources include and the Windows CRT lacks,
+# with what the sources use of them; see compat/windows.
+cc_library(
+    name = "compat_windows",
+    srcs = ["compat/windows/regex.c"],
+    hdrs = glob(["compat/windows/**/*.h"]),
+    includes = ["compat/windows"],
+    target_compatible_with = ["@platforms//os:windows"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "bzl_lib",
+    srcs = ["repository.bzl"],
+    visibility = ["//kconfig:__subpackages__"],
+)

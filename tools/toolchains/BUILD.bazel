@@ -6,6 +6,17 @@ load("@rules_venv//python/pytest:defs.bzl", "py_pytest_toolchain")
 
 package(default_visibility = ["//visibility:public"])
 
+# The host, compiling C with clang-cl: the kernel's parser is written for gcc
+# and clang, and cl.exe does not take it. Under toolchain resolution
+# `--compiler=clang-cl` selects no toolchain; rules_cc's clang-cl toolchains
+# run on an execution platform with this constraint, which .bazelrc names for
+# Windows (`build:windows`).
+platform(
+    name = "windows_clang_cl",
+    constraint_values = ["@rules_cc//cc/private/toolchain:clang-cl"],
+    parents = ["@platforms//host"],
+)
+
 py_black_toolchain(
     name = "py_black_toolchain",
     black = "@kconfig_pip_deps//black",

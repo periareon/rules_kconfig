@@ -1,0 +1,447 @@
+diff --git a/confdata.c b/confdata.c
+--- a/confdata.c
++++ b/confdata.c
+@@ -642,7 +642,7 @@
+ 	if (sym->type == S_UNKNOWN)
+ 		return;
+ 
+-	val = sym_get_string_value(sym);
++	val = kconfig_host_string_value(sym);
+ 
+ 	if ((sym->type == S_BOOLEAN || sym->type == S_TRISTATE) &&
+ 	    output_n != OUTPUT_N && *val == 'n') {
+@@ -686,7 +686,7 @@
+ 	if (sym->type == S_UNKNOWN)
+ 		return;
+ 
+-	val = sym_get_string_value(sym);
++	val = kconfig_host_string_value(sym);
+ 
+ 	switch (sym->type) {
+ 	case S_BOOLEAN:
+@@ -729,7 +729,7 @@
+ 	if (sym->type == S_UNKNOWN)
+ 		return;
+ 
+-	val = sym_get_string_value(sym);
++	val = kconfig_host_string_value(sym);
+ 
+ 	switch (sym->type) {
+ 	case S_BOOLEAN:
+@@ -889,7 +889,6 @@
+ 	if (!out)
+ 		return 1;
+ 
+-	conf_write_heading(out, &comment_style_pound);
+ 
+ 	if (!conf_get_changed())
+ 		sym_clear_all_valid();
+@@ -909,7 +908,7 @@
+ 		} else if (!(sym->flags & SYMBOL_CHOICE) &&
+ 			   !(sym->flags & SYMBOL_WRITTEN)) {
+ 			sym_calc_value(sym);
+-			if (!(sym->flags & SYMBOL_WRITE))
++			if (!kconfig_host_should_write(sym))
+ 				goto next;
+ 			if (need_newline) {
+ 				fprintf(out, "\n");
+diff --git a/lexer.l b/lexer.l
+--- a/lexer.l
++++ b/lexer.l
+@@ -111,6 +111,7 @@
+ "endif"			return T_ENDIF;
+ "endmenu"		return T_ENDMENU;
+ "help"			return T_HELP;
++"---help---"		return T_HELP;
+ "hex"			return T_HEX;
+ "if"			return T_IF;
+ "imply"			return T_IMPLY;
+@@ -120,6 +121,7 @@
+ "menuconfig"		return T_MENUCONFIG;
+ "modules"		return T_MODULES;
+ "on"			return T_ON;
++"option"		return T_OPTION;
+ "optional"		return T_OPTIONAL;
+ "prompt"		return T_PROMPT;
+ "range"			return T_RANGE;
+@@ -146,12 +148,12 @@
+ 				new_string();
+ 				BEGIN(STRING);
+ 			}
+-{n}+			{
++({n}|[/.])+		{
+ 				alloc_string(yytext, yyleng);
+ 				yylval.string = text;
+ 				return T_WORD;
+ 			}
+-({n}|$)+		{
++({n}|[/.$])+		{
+ 				/* this token includes at least one '$' */
+ 				yylval.string = expand_token(yytext, yyleng);
+ 				if (strlen(yylval.string))
+@@ -409,6 +411,7 @@
+ {
+ 	struct buffer *buf = xmalloc(sizeof(*buf));
+ 	bool recur_include = false;
++	FILE *buf_yyin = yyin;
+ 
+ 	buf->state = YY_CURRENT_BUFFER;
+ 	buf->yylineno = yylineno;
+@@ -420,7 +423,11 @@
+ 	if (!yyin) {
+ 		fprintf(stderr, "%s:%d: can't open file \"%s\"\n",
+ 			cur_filename, cur_lineno, name);
+-		exit(1);
++		kconfig_host_fail();
++		current_buf = buf->parent;
++		free(buf);
++		yyin = buf_yyin;
++		return;
+ 	}
+ 	yy_switch_to_buffer(yy_create_buffer(yyin, YY_BUF_SIZE));
+ 
+@@ -438,7 +445,14 @@
+ 		for (buf = current_buf; buf; buf = buf->parent)
+ 			fprintf(stderr, "  included from: %s:%d\n",
+ 				buf->filename, buf->source_lineno);
+-		exit(1);
++		kconfig_host_fail();
++		buf = current_buf;
++		fclose(yyin);
++		yy_delete_buffer(YY_CURRENT_BUFFER);
++		yy_switch_to_buffer(buf->state);
++		current_buf = buf->parent;
++		free(buf);
++		return;
+ 	}
+ 
+ 	yylineno = 1;
+diff --git a/parser.y b/parser.y
+--- a/parser.y
++++ b/parser.y
+@@ -45,6 +45,8 @@
+ %token <string> T_HELPTEXT
+ %token <string> T_WORD
+ %token <string> T_WORD_QUOTE
++%type <string> word_or_string
++%type <string> word_opt
+ %token T_BOOL
+ %token T_CHOICE
+ %token T_CLOSE_PAREN
+@@ -69,6 +71,7 @@
+ %token T_MODULES
+ %token T_ON
+ %token T_OPEN_PAREN
++%token T_OPTION
+ %token T_OPTIONAL
+ %token T_PLUS_EQUAL
+ %token T_PROMPT
+@@ -109,7 +112,7 @@
+ 
+ /* mainmenu entry */
+ 
+-mainmenu_stmt: T_MAINMENU T_WORD_QUOTE T_EOL
++mainmenu_stmt: T_MAINMENU word_or_string T_EOL
+ {
+ 	menu_add_prompt(P_MENU, $2, NULL);
+ };
+@@ -133,6 +136,7 @@
+ 	| stmt_list_in_choice comment_stmt
+ 	| stmt_list_in_choice config_stmt
+ 	| stmt_list_in_choice if_stmt_in_choice
++	| stmt_list_in_choice source_stmt
+ 	| stmt_list_in_choice error T_EOL	{ zconf_error("invalid statement"); }
+ ;
+ 
+@@ -179,7 +183,7 @@
+ 	printd(DEBUG_PARSE, "%s:%d:type(%u)\n", cur_filename, cur_lineno, $1);
+ };
+ 
+-config_option: T_PROMPT T_WORD_QUOTE if_expr T_EOL
++config_option: T_PROMPT word_or_string if_expr T_EOL
+ {
+ 	menu_add_prompt(P_PROMPT, $2, $3);
+ 	printd(DEBUG_PARSE, "%s:%d:prompt\n", cur_filename, cur_lineno);
+@@ -220,14 +224,45 @@
+ 	modules_sym = current_entry->sym;
+ };
+ 
++/*
++ * `option <name>[=<value>]...`, which kconfiglib and older kernels accept;
++ * each option goes to kconfig_host_option, which answers as kconfiglib does.
++ */
++config_option: T_OPTION option_list T_EOL;
++
++option_list: option
++	| option_list option
++;
++
++option: T_MODULES
++{
++	kconfig_host_option(current_entry->sym, "modules", NULL);
++}
++	| T_WORD
++{
++	const char *err = kconfig_host_option(current_entry->sym, $1, NULL);
++	if (err)
++		zconf_error("%s", err);
++	free($1);
++}
++	| T_WORD T_EQUAL word_or_string
++{
++	const char *err = kconfig_host_option(current_entry->sym, $1, $3);
++	if (err)
++		zconf_error("%s", err);
++	free($1);
++	free($3);
++};
++
+ /* choice entry */
+ 
+-choice: T_CHOICE T_EOL
++choice: T_CHOICE word_opt T_EOL
+ {
+-	struct symbol *sym = sym_lookup(NULL, SYMBOL_CHOICE);
++	struct symbol *sym = sym_lookup($2, SYMBOL_CHOICE);
+ 	sym->flags |= SYMBOL_NO_WRITE;
+ 	menu_add_entry(sym);
+ 	menu_add_expr(P_CHOICE, NULL, NULL);
++	free($2);
+ 	printd(DEBUG_PARSE, "%s:%d:choice\n", cur_filename, cur_lineno);
+ };
+ 
+@@ -260,7 +295,7 @@
+ 	| choice_option_list help
+ ;
+ 
+-choice_option: T_PROMPT T_WORD_QUOTE if_expr T_EOL
++choice_option: T_PROMPT word_or_string if_expr T_EOL
+ {
+ 	menu_add_prompt(P_PROMPT, $2, $3);
+ 	printd(DEBUG_PARSE, "%s:%d:prompt\n", cur_filename, cur_lineno);
+@@ -325,7 +360,7 @@
+ 
+ /* menu entry */
+ 
+-menu: T_MENU T_WORD_QUOTE T_EOL
++menu: T_MENU word_or_string T_EOL
+ {
+ 	menu_add_entry(NULL);
+ 	menu_add_prompt(P_MENU, $2, NULL);
+@@ -354,7 +389,7 @@
+ 	| menu_option_list depends
+ ;
+ 
+-source_stmt: T_SOURCE T_WORD_QUOTE T_EOL
++source_stmt: T_SOURCE word_or_string T_EOL
+ {
+ 	printd(DEBUG_PARSE, "%s:%d:source %s\n", cur_filename, cur_lineno, $2);
+ 	zconf_nextfile($2);
+@@ -363,7 +398,7 @@
+ 
+ /* comment entry */
+ 
+-comment: T_COMMENT T_WORD_QUOTE T_EOL
++comment: T_COMMENT word_or_string T_EOL
+ {
+ 	menu_add_entry(NULL);
+ 	menu_add_prompt(P_COMMENT, $2, NULL);
+@@ -420,7 +455,7 @@
+ 
+ prompt_stmt_opt:
+ 	  /* empty */
+-	| T_WORD_QUOTE if_expr
++	| word_or_string if_expr
+ {
+ 	menu_add_prompt(P_PROMPT, $1, $2);
+ };
+@@ -430,6 +465,14 @@
+ 	| T_ENDIF T_EOL		{ $$ = "if"; }
+ ;
+ 
++/* The name of a choice, which kconfiglib and older kernels accept. */
++word_opt: /* empty */			{ $$ = NULL; }
++	| T_WORD
++;
++
++/* An unquoted word where a string is expected, as kconfiglib reads one. */
++word_or_string: T_WORD | T_WORD_QUOTE;
++
+ if_expr:  /* empty */			{ $$ = NULL; }
+ 	| T_IF expr			{ $$ = $2; }
+ ;
+@@ -474,6 +517,7 @@
+ void conf_parse(const char *name)
+ {
+ 	struct menu *menu;
++	int dep_errors = 0;
+ 
+ 	autoconf_cmd = str_new();
+ 
+@@ -505,8 +549,13 @@
+ 	/* Variables are expanded in the parse phase. We can free them here. */
+ 	variable_all_del();
+ 
+-	if (yynerrs)
+-		exit(1);
++	if (yynerrs) {
++		kconfig_host_fail();
++		return;
++	}
++	/* kconfiglib takes the symbol named MODULES, with or without the option. */
++	if (!modules_sym)
++		modules_sym = sym_find("MODULES");
+ 	if (!modules_sym)
+ 		modules_sym = &symbol_no;
+ 
+@@ -520,7 +569,7 @@
+ 	menu = &rootmenu;
+ 	while (menu) {
+ 		if (menu->sym && sym_check_deps(menu->sym))
+-			yynerrs++;
++			dep_errors++;
+ 
+ 		if (menu->list) {
+ 			menu = menu->list;
+@@ -533,8 +582,13 @@
+ 		menu = menu->next;
+ 	}
+ 
+-	if (yynerrs)
+-		exit(1);
++	/*
++	 * Reported above, and not fatal: kconfiglib evaluates such trees, and
++	 * so does sym_calc_value, which guards against re-entry.
++	 */
++	if (dep_errors)
++		fprintf(stderr, "warning: %d recursive dependencies ignored\n",
++			dep_errors);
+ 	conf_set_changed(true);
+ }
+ 
+diff --git a/preprocess.c b/preprocess.c
+--- a/preprocess.c
++++ b/preprocess.c
+@@ -18,7 +18,7 @@
+ static char *expand_string_with_args(const char *in, int argc, char *argv[]);
+ static char *expand_string(const char *in);
+ 
+-static void __attribute__((noreturn)) pperror(const char *format, ...)
++static void pperror(const char *format, ...)
+ {
+ 	va_list ap;
+ 
+@@ -28,7 +28,7 @@
+ 	va_end(ap);
+ 	fprintf(stderr, "\n");
+ 
+-	exit(1);
++	kconfig_host_fail();
+ }
+ 
+ /*
+@@ -212,13 +212,17 @@
+ 		if (strcmp(f->name, name))
+ 			continue;
+ 
+-		if (argc < f->min_args)
++		if (argc < f->min_args) {
+ 			pperror("too few function arguments passed to '%s'",
+ 				name);
++			return xstrdup("");
++		}
+ 
+-		if (argc > f->max_args)
++		if (argc > f->max_args) {
+ 			pperror("too many function arguments passed to '%s'",
+ 				name);
++			return xstrdup("");
++		}
+ 
+ 		return f->func(argc, argv);
+ 	}
+@@ -260,12 +264,16 @@
+ 	if (!v)
+ 		return NULL;
+ 
+-	if (argc == 0 && v->exp_count)
++	if (argc == 0 && v->exp_count) {
+ 		pperror("Recursive variable '%s' references itself (eventually)",
+ 			name);
++		return xstrdup("");
++	}
+ 
+-	if (v->exp_count > 1000)
++	if (v->exp_count > 1000) {
+ 		pperror("Too deep recursive expansion");
++		return xstrdup("");
++	}
+ 
+ 	v->exp_count++;
+ 
+@@ -387,8 +395,11 @@
+ 	while (*p) {
+ 		if (nest == 0 && *p == ',') {
+ 			*p = 0;
+-			if (new_argc >= FUNCTION_MAX_ARGS)
++			if (new_argc >= FUNCTION_MAX_ARGS) {
+ 				pperror("too many function arguments");
++				res = xstrdup("");
++				goto free_tmp;
++			}
+ 			new_argv[new_argc++] = prev;
+ 			prev = p + 1;
+ 		} else if (*p == '(') {
+@@ -400,8 +411,11 @@
+ 		p++;
+ 	}
+ 
+-	if (new_argc >= FUNCTION_MAX_ARGS)
++	if (new_argc >= FUNCTION_MAX_ARGS) {
+ 		pperror("too many function arguments");
++		res = xstrdup("");
++		goto free_tmp;
++	}
+ 	new_argv[new_argc++] = prev;
+ 
+ 	/*
+@@ -484,8 +498,11 @@
+ 		q++;
+ 	}
+ 
+-	if (!*q)
++	if (!*q) {
+ 		pperror("unterminated reference to '%s': missing ')'", p);
++		*str = q;
++		return xstrdup("");
++	}
+ 
+ 	/* Advance 'str' to after the expanded initial portion of the string */
+ 	*str = q + 1;
+@@ -564,7 +581,7 @@
+ 
+ static bool is_end_of_token(char c)
+ {
+-	return !(isalnum(c) || c == '_' || c == '-');
++	return !(isalnum(c) || c == '_' || c == '-' || c == '.' || c == '/');
+ }
+ 
+ /*
+diff --git a/symbol.c b/symbol.c
+--- a/symbol.c
++++ b/symbol.c
+@@ -352,10 +352,12 @@
+ 
+ 	switch (sym->type) {
+ 	case S_INT:
+-		newval.val = "0";
++		/* kconfiglib, and the kernel before 6.x: an int or hex symbol
++		 * nothing sets is "", which `SYM = 0` compares as a string. */
++		newval.val = "";
+ 		break;
+ 	case S_HEX:
+-		newval.val = "0x0";
++		newval.val = "";
+ 		break;
+ 	case S_STRING:
+ 		newval.val = "";

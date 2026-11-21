@@ -1,0 +1,9 @@
+{
+  "root": "Kconfig",
+  "files": [
+    "Kconfig"
+  ],
+  "settings_labels": {
+    "CONFIG_VERSION": "@//:version"
+  }
+}
