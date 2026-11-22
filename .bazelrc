@@ -32,6 +32,13 @@ build --incompatible_autoload_externally=
 # Disable networking in sandboxes to encourage hermetic builds
 build --sandbox_default_allow_network=false
 
+# The kernel's parser is written for gcc and clang: on Windows, clang-cl.
+# `--compiler=clang-cl` selects nothing under toolchain resolution; the
+# execution platform carrying rules_cc's `clang-cl` constraint does (see
+# tools/toolchains/BUILD.bazel).
+build:windows --extra_toolchains=@local_config_cc//:cc-toolchain-x64_windows-clang-cl,@local_config_cc//:cc-toolchain-arm64_windows-clang-cl
+build:windows --extra_execution_platforms=//tools/toolchains:windows_clang_cl
+
 ###############################################################################
 ## Configuration Flags
 ###############################################################################
@@ -63,6 +70,10 @@ build:strict --config=mypy
 
 # Enable all linters and formatters
 test --config=strict
+
+# Build for the WebAssembly module's platform with the wasi-sdk toolchain of
+# tools/wasi_sdk, e.g. `bazel build --config=wasm32 @kernel_kconfig//:kconfig`.
+build:wasm32 --platforms=//tools/wasi_sdk:wasm32-wasip1
 
 ###############################################################################
 ## Custom user flags

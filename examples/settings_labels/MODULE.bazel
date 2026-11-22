@@ -7,7 +7,6 @@ module(
 
 bazel_dep(name = "rules_kconfig", version = "0.0.1")
 bazel_dep(name = "rules_cc", version = "0.2.4")
-bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "bazel_skylib", version = "1.8.2")
 
 local_path_override(
@@ -15,17 +14,12 @@ local_path_override(
     path = "../..",
 )
 
-python = use_extension("@rules_python//python/extensions:python.bzl", "python")
-python.toolchain(python_version = "3.14")
-use_repo(python, "python_3_14_host")
-
 kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 
 # The original repository.  CONFIG_VERSION uses $(shell,...) in Kconfig,
 # so we replace it with a user-provided rule via settings_labels.
 kconfig.repo(
     name = "setting_labels_kconfig",
-    interpreter = "@python_3_14_host//:python",
     kconfig = "//:Kconfig",
     settings_labels = {
         "//:version_setting": "CONFIG_VERSION",
@@ -38,7 +32,6 @@ kconfig.repo(
 kconfig.overrides(
     name = "setting_labels_overrides",
     config = "//:.config",
-    interpreter = "@python_3_14_host//:python",
     kconfig = "@setting_labels_kconfig//:setting_labels_kconfig",
 )
 use_repo(kconfig, "setting_labels_kconfig", "setting_labels_overrides")

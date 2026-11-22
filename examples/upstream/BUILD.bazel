@@ -1,0 +1,3 @@
+# The cases are under linux/ and uboot/; defs.bzl has what they share.
+
+exports_files(["defs.bzl"])

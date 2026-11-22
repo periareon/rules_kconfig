@@ -1,0 +1,49 @@
+# Linux 6.12: the repositories generated from its Kconfig tree against the
+# kernel's own `conf`, and the `config.h` they provide.
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_kconfig//kconfig:defs.bzl", "make_variable_setting")
+load("//:defs.bzl", "kconfig_conf_test")
+load(":env.bzl", "linux_env")
+
+exports_files(glob(["configs/*"]))
+
+# The C compiler of the toolchain Bazel resolves for the build, which
+# `settings_labels` in MODULE.bazel makes CONFIG_CC_VERSION_TEXT of
+# @linux_x86_64, where the repository rule only knew the probes' dummy gcc.
+make_variable_setting(
+    name = "cc_path",
+    expression = "$(CC)",
+    toolchains = ["@bazel_tools//tools/cpp:current_cc_toolchain"],
+    visibility = ["//visibility:public"],
+)
+
+[
+    kconfig_conf_test(
+        name = name,
+        srcs = "@linux//:kconfig_files",
+        conf = "@linux//:conf",
+        defconfig = defconfig,
+        env = linux_env(arch),
+        kconfig = "@linux//:Kconfig",
+        repo = repo,
+    )
+    for name, repo, arch, defconfig in [
+        ("x86_64_defconfig", "@linux_x86_64", "x86", ":configs/x86_64_defconfig"),
+        ("x86_64_alldefconfig", "@linux_x86_64_alldefconfig", "x86", None),
+        ("arm64_defconfig", "@linux_arm64", "arm64", ":configs/arm64_defconfig"),
+    ]
+]
+
+[
+    cc_test(
+        name = name + "_config_h_test",
+        srcs = ["test_config.c"],
+        local_defines = [expect],
+        deps = [repo + "//:config"],
+    )
+    for name, repo, expect in [
+        ("x86_64_defconfig", "@linux_x86_64", "EXPECT_X86_64"),
+        ("arm64_defconfig", "@linux_arm64", "EXPECT_ARM64"),
+    ]
+]

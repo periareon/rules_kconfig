@@ -1,6 +1,7 @@
 exports_files([
     "MODULE.bazel",
     "LICENSE",
+    "cargo-bazel-lock.json",
     "version.bzl",
     ".isort.cfg",
     ".mypy.ini",

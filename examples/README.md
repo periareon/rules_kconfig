@@ -23,6 +23,14 @@ cd examples/simple
 bazel build //:lib
 ```
 
+The examples take `rules_kconfig` from this source checkout, which carries no
+build of the parser, so name one: `RULES_KCONFIG_WASM` (with
+`--experimental_repository_ctx_execute_wasm`) or `RULES_KCONFIG_TOOL`, as
+absolute paths through `--repo_env`, for instance the outputs of
+`bazel build --config=wasm32 //kconfig/private/parser:kconfig_wasm` and
+`bazel build //kconfig/private/parser:kconfig_tool` at the root. With a
+release of `rules_kconfig` nothing is needed.
+
 ### Overriding kconfig values
 
 Pass flags on the command line or in `.bazelrc`:
@@ -40,3 +48,11 @@ The generated `@simple_kconfig//:config.h` will contain:
 #define CONFIG_COUNT 4
 /* #undef CONFIG_LABEL */
 ```
+
+## upstream
+
+The Kconfig trees of Linux 6.12 and U-Boot v2025.10, each generated into
+repositories for a few defconfigs and compared with what the tree's own
+`conf` writes for them; the regression tests of the parser against the trees
+it is meant for. See [upstream/README.md](upstream/README.md). Linux and
+macOS only, and the kernel's tarball is 148 MB.

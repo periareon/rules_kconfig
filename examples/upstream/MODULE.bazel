@@ -1,0 +1,134 @@
+"""Example: the Kconfig trees of Linux and U-Boot, checked against their own `conf`."""
+
+module(
+    name = "rules_kconfig_example_upstream",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_kconfig", version = "0.0.1")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "rules_cc", version = "0.2.9")
+
+# Each tree's own `scripts/kconfig/conf` is built from the tree as the oracle
+# the generated repositories are compared with; its parser is generated with
+# bison and flex, as the tree's build does.
+bazel_dep(name = "bison", version = "3.8.2.bcr.13")
+bazel_dep(name = "flex", version = "2.6.4.bcr.10")
+
+local_path_override(
+    module_name = "rules_kconfig",
+    path = "../..",
+)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "linux",
+    build_file = "//linux:BUILD.linux.bazel",
+    sha256 = "b1a2562be56e42afb3f8489d4c2a7ac472ac23098f1ef1c1e40da601f54625eb",
+    strip_prefix = "linux-6.12",
+    urls = ["https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.tar.xz"],
+)
+
+http_archive(
+    name = "u_boot",
+    build_file = "//uboot:BUILD.u_boot.bazel",
+    sha256 = "5414ee86562abc5ed524c6dc5e092511ad281441020a88e7027de6e83fd16116",
+    strip_prefix = "u-boot-2025.10",
+    urls = ["https://github.com/u-boot/u-boot/archive/refs/tags/v2025.10.tar.gz"],
+)
+
+# What each tree's Makefile exports to Kconfig; linux/env.bzl and
+# uboot/env.bzl carry the same tables for the oracle, as MODULE.bazel cannot
+# load them. Linux configures with `scripts/dummy-tools` standing in for the
+# toolchain (`make CROSS_COMPILE=scripts/dummy-tools/`), which answers every
+# compiler and linker probe the same way on every host.
+LINUX_ENV = {
+    "BINDGEN": "no-bindgen",
+    "CC_VERSION_TEXT": "gcc (scripts/dummy-tools/gcc)",
+    "KERNELVERSION": "6.12.0",
+    "RUSTC": "no-rustc",
+}
+
+# The tools the probes run, as files: a toolchain repository's binaries would
+# go here the same way (`"@llvm_toolchain_llvm//:bin/clang": "CC"`).
+LINUX_TOOLS = {
+    "@linux//:scripts/dummy-tools/gcc": "CC",
+    "@linux//:scripts/dummy-tools/ld": "LD",
+    "@linux//:scripts/dummy-tools/nm": "NM",
+    "@linux//:scripts/dummy-tools/objcopy": "OBJCOPY",
+    "@linux//:scripts/dummy-tools/pahole": "PAHOLE",
+}
+
+U_BOOT_ENV = {
+    "CC": "gcc",
+    "CC_VERSION_TEXT": "gcc",
+    "LD": "ld",
+    "UBOOTVERSION": "2025.10",
+}
+
+kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
+
+# Linux: `make x86_64_defconfig`, `make ARCH=arm64 defconfig` and
+# `make alldefconfig`. The defconfigs are the kernel's, with the symbols a
+# defaults file has to decide added (see linux/configs).
+kconfig.repo(
+    name = "linux_x86_64",
+    defaults = "//linux:configs/x86_64_defconfig",
+    env = LINUX_ENV | {
+        "ARCH": "x86",
+        "SRCARCH": "x86",
+    },
+    env_labels = LINUX_TOOLS,
+    kconfig = "@linux//:Kconfig",
+    # In config.h, the compiler Bazel's C++ toolchain resolved, not the
+    # variable the probes ran with (see linux/BUILD.bazel).
+    settings_labels = {"//linux:cc_path": "CONFIG_CC_VERSION_TEXT"},
+)
+kconfig.repo(
+    name = "linux_x86_64_alldefconfig",
+    env = LINUX_ENV | {
+        "ARCH": "x86",
+        "SRCARCH": "x86",
+    },
+    env_labels = LINUX_TOOLS,
+    kconfig = "@linux//:Kconfig",
+)
+kconfig.repo(
+    name = "linux_arm64",
+    defaults = "//linux:configs/arm64_defconfig",
+    env = LINUX_ENV | {
+        "ARCH": "arm64",
+        "SRCARCH": "arm64",
+    },
+    env_labels = LINUX_TOOLS,
+    kconfig = "@linux//:Kconfig",
+)
+
+# U-Boot: two boards' defconfigs as the tree carries them, and `alldefconfig`.
+kconfig.repo(
+    name = "u_boot_qemu_arm64",
+    defaults = "@u_boot//:configs/qemu_arm64_defconfig",
+    env = U_BOOT_ENV,
+    kconfig = "@u_boot//:Kconfig",
+)
+kconfig.repo(
+    name = "u_boot_qemu_x86_64",
+    defaults = "@u_boot//:configs/qemu-x86_64_defconfig",
+    env = U_BOOT_ENV,
+    kconfig = "@u_boot//:Kconfig",
+)
+kconfig.repo(
+    name = "u_boot_alldefconfig",
+    env = U_BOOT_ENV,
+    kconfig = "@u_boot//:Kconfig",
+)
+use_repo(
+    kconfig,
+    "linux_arm64",
+    "linux_x86_64",
+    "linux_x86_64_alldefconfig",
+    "u_boot_alldefconfig",
+    "u_boot_qemu_arm64",
+    "u_boot_qemu_x86_64",
+)

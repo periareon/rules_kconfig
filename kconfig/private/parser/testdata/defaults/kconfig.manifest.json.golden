@@ -1,0 +1,10 @@
+{
+  "root": "Kconfig",
+  "files": [
+    "Kconfig",
+    "drivers/a/Kconfig",
+    "drivers/b/Kconfig",
+    "extra/Kconfig.extra"
+  ],
+  "config": "rendered.config"
+}

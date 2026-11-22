@@ -1,119 +1,59 @@
 """kconfig_repository"""
 
 load(
-    "//kconfig/private:wasm_backend.bzl",
+    "//kconfig/private:parser_backend.bzl",
+    "host_independent",
     "new_request",
-    "run_module",
+    "run_parser",
+    "seed_file",
     "select_backend",
     "write_files",
 )
 
-def _find_kconfiglib(repository_ctx):
-    """Resolve the directory containing kconfiglib from the anchor label."""
-    return repository_ctx.path(repository_ctx.attr.kconfiglib_anchor).dirname
-
-def _rules_kconfig_root(repository_ctx):
-    """Derive the rules_kconfig repo root from the _kconfig_parser label."""
-    return str(repository_ctx.path(repository_ctx.attr._kconfig_parser).dirname.dirname.dirname)
-
 def _config_ws_path(label):
     return (label.package + "/" + label.name).lstrip("/")
 
-def _generate_with_python(repository_ctx, kconfig, repo_name, manifest_file):
-    """Run `repository_gen.py` with the `interpreter`."""
-    python = repository_ctx.path(repository_ctx.attr.interpreter)
-    kconfiglib = _find_kconfiglib(repository_ctx)
-    generator = repository_ctx.path(repository_ctx.attr._repository_gen)
-    repository_ctx.watch(generator)
+def _generate_with_parser(repository_ctx, backend, kconfig, repo_name):
+    """Run the parser, which reads the Kconfig tree through this rule."""
+    env = dict(repository_ctx.attr.env)
 
-    parser = repository_ctx.path(repository_ctx.attr._kconfig_parser)
-    repository_ctx.watch(parser)
-
-    build_file = repository_ctx.path("BUILD.bazel")
-    config_h_in_file = repository_ctx.path("config.h.in")
-    rendered_config_file = repository_ctx.path("rendered.config")
-    settings_bzl_file = repository_ctx.path("settings.bzl")
-    settings_build_file = repository_ctx.path("settings/BUILD.bazel")
-
-    cmd = [
-        python,
-        "-B",
-        "-s",
-        "-P",
-        generator,
-        "--kconfig",
-        kconfig,
-        "--out_build",
-        build_file,
-        "--out_manifest",
-        manifest_file,
-        "--out_config_h_in",
-        config_h_in_file,
-        "--out_rendered_config",
-        rendered_config_file,
-        "--out_settings_bzl",
-        settings_bzl_file,
-        "--out_settings_build",
-        settings_build_file,
-        "--repo_name",
-        repo_name,
-    ]
-
-    if repository_ctx.attr.defaults:
-        defaults = repository_ctx.path(repository_ctx.attr.defaults)
-        cmd.extend(["--defaults", defaults])
-        repository_ctx.watch(defaults)
-        cmd.extend(["--config_ws_path", _config_ws_path(repository_ctx.attr.defaults)])
-
-    if repository_ctx.attr.settings_options:
-        cmd.extend(["--settings_options", json.encode(repository_ctx.attr.settings_options)])
-
-    if repository_ctx.attr.settings_labels:
-        cmd.extend(["--settings_labels", json.encode(repository_ctx.attr.settings_labels)])
-
-    rules_root = _rules_kconfig_root(repository_ctx)
-    path_sep = ";" if "windows" in repository_ctx.os.name.lower() else ":"
-    result = repository_ctx.execute(
-        cmd,
-        environment = {"PYTHONPATH": "{}{}{}".format(rules_root, path_sep, str(kconfiglib))},
-    )
-    if result.return_code != 0:
-        fail("Failed to invoke Python: {}".format(result.stderr))
-
-    return json.decode(repository_ctx.read(manifest_file))
-
-def _generate_with_wasm(repository_ctx, module, kconfig, repo_name):
-    """Run the WebAssembly module, which reads the Kconfig tree through this rule."""
-    request = new_request(repository_ctx, "repository", kconfig, kconfig.dirname)
+    # A variable that names a file, such as a downloaded toolchain's compiler:
+    # its path, which the manifest records for the overrides layered on this
+    # repository.
+    for label, name in repository_ctx.attr.env_labels.items():
+        path = repository_ctx.path(label)
+        repository_ctx.watch(path)
+        env[name] = str(path)
+    request = new_request(repository_ctx, "repository", kconfig, kconfig.dirname, env = env)
     request["repo_name"] = repo_name
     request["defaults"] = None
     request["config_ws_path"] = None
+    request["kconfig_env"] = env
     request["settings_labels"] = dict(repository_ctx.attr.settings_labels)
     request["settings_options"] = {
         name: list(values)
         for name, values in repository_ctx.attr.settings_options.items()
     }
     if repository_ctx.attr.defaults:
-        request["defaults"] = str(repository_ctx.path(repository_ctx.attr.defaults))
+        defaults = repository_ctx.path(repository_ctx.attr.defaults)
+        request["defaults"] = str(defaults)
         request["config_ws_path"] = _config_ws_path(repository_ctx.attr.defaults)
-
-    response = run_module(repository_ctx, module, request)
+        seed_file(repository_ctx, request, defaults)
+    response = run_parser(repository_ctx, backend, request, env = env)
     write_files(repository_ctx, response["files"])
-    return response["manifest"]
+    return struct(
+        manifest = response["manifest"],
+        reproducible = host_independent(request),
+    )
 
 def _kconfig_repository_impl(repository_ctx):
     kconfig = repository_ctx.path(repository_ctx.attr.kconfig)
     repo_name = repository_ctx.attr.apparent_name or repository_ctx.name
     manifest_file = repository_ctx.path("kconfig.manifest.json")
-
-    backend = select_backend(repository_ctx)
-    if backend.name == "wasm":
-        manifest = _generate_with_wasm(repository_ctx, backend.module, kconfig, repo_name)
-    else:
-        manifest = _generate_with_python(repository_ctx, kconfig, repo_name, manifest_file)
+    generated = _generate_with_parser(repository_ctx, select_backend(repository_ctx), kconfig, repo_name)
 
     kconfig_dir = kconfig.dirname
-    for f in manifest["files"]:
+    for f in generated.manifest["files"]:
         src = kconfig_dir.get_child(f)
         repository_ctx.watch(src)
         repository_ctx.symlink(src, "kconfig_srcs/" + f)
@@ -123,6 +63,12 @@ def _kconfig_repository_impl(repository_ctx):
     repository_ctx.file("WORKSPACE.bazel", """workspace(name = "{}")""".format(
         repository_ctx.name,
     ))
+
+    # A reproducible repository may be taken from the repo contents cache
+    # instead of generated again.
+    if generated.reproducible and hasattr(repository_ctx, "repo_metadata"):
+        return repository_ctx.repo_metadata(reproducible = True)
+    return None
 
 kconfig_repository = repository_rule(
     doc = """\
@@ -138,10 +84,10 @@ The Kconfig source tree is symlinked into `kconfig_srcs/` and a
 A repo-named symlink (e.g. `@my_kconfig//:my_kconfig`) points to
 the manifest for downstream consumers.
 
-The Kconfig tree is parsed by kconfiglib, either inside the WebAssembly module
-a release of rules_kconfig carries (Bazel 9.3 or newer with
-`--experimental_repository_ctx_execute_wasm`; no interpreter needed) or by the
-Python `interpreter`. The `interpreter` is ignored when the module is used.
+The Kconfig tree is parsed by the kernel's parser, as the WebAssembly module a
+release of rules_kconfig carries (Bazel 9.3 or newer with
+`--experimental_repository_ctx_execute_wasm`) or as the release's native build
+for the host; both generate the same repository.
 
 Prefer using the `kconfig` module extension rather than calling this rule
 directly.
@@ -154,15 +100,31 @@ directly.
         "defaults": attr.label(
             doc = "Optional .config file with explicit symbol values that override Kconfig defaults.",
         ),
-        "interpreter": attr.label(
-            doc = "A Python interpreter target used to run the Kconfig parser when the WebAssembly backend is not available.",
+        "env": attr.string_dict(
+            doc = """\
+Environment variables for the Kconfig tree: what `$(NAME)` and `option env`
+read, and the environment of `$(shell,...)` commands, over the repository
+rule's own environment (`--repo_env`). The kernel's tree reads `ARCH`,
+`SRCARCH`, `CC`, `LD` and others its Makefile exports, so that several
+architectures' repositories can be generated in one workspace. The variables
+are recorded in the manifest and apply to `kconfig_overrides_repository`
+layered on the repository.
+""",
+            default = {},
+        ),
+        "env_labels": attr.label_keyed_string_dict(
+            doc = """\
+Files as environment variables for the Kconfig tree: each label's path is
+the value of the variable it maps to, over `env`. For the tools a tree's
+`$(shell,...)` probes run, `CC`, `LD` or `RUSTC`, a label into a downloaded
+toolchain's repository (`@llvm_toolchain_llvm//:bin/clang`) runs that
+toolchain's binary on the host; a repository rule cannot resolve the
+toolchain Bazel would pick for a platform.
+""",
+            default = {},
         ),
         "kconfig": attr.label(
             doc = "The root Kconfig file to parse. All files referenced via `source` directives are followed automatically.",
-            mandatory = True,
-        ),
-        "kconfiglib_anchor": attr.label(
-            doc = "Label used to locate the `kconfiglib` package. Managed by the module extension.",
             mandatory = True,
         ),
         "settings_labels": attr.string_dict(
@@ -178,19 +140,19 @@ configuration (e.g. toolchain-derived values like compiler version).
             doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
             default = {},
         ),
-        "wasm_module": attr.label(
+        "tool": attr.label(
             doc = """\
-The WebAssembly backend (`kconfig.wasm`), used on Bazel 9.3 or newer with
-`--experimental_repository_ctx_execute_wasm`. The `kconfig` module extension
-provides the module of the release, or the one `RULES_KCONFIG_WASM` names; without
-one the Python `interpreter` is used.
+The native build of the parser (`kconfig_tool`), used where the WebAssembly
+module cannot be. The `kconfig` module extension provides the release's build
+for the host, or the one `RULES_KCONFIG_TOOL` names.
 """,
         ),
-        "_kconfig_parser": attr.label(
-            default = Label("//kconfig/private:kconfig_parser.py"),
-        ),
-        "_repository_gen": attr.label(
-            default = Label("//kconfig/private:repository_gen.py"),
+        "wasm_module": attr.label(
+            doc = """\
+The WebAssembly build of the parser (`kconfig.wasm`), used on Bazel 9.3 or
+newer with `--experimental_repository_ctx_execute_wasm`. The `kconfig` module
+extension provides the release's module, or the one `RULES_KCONFIG_WASM` names.
+""",
         ),
     },
 )

@@ -74,6 +74,63 @@ jobs:
           git push origin "${version}"
           echo "tag=${version}" >> $GITHUB_OUTPUT
 
+  # The native builds of the parser, one per platform. The reusable workflow
+  # below downloads every artifact of the run into `artifacts/` before it
+  # runs `release_prep.sh`, which attaches them and bakes their integrities
+  # into the archive's module.bzl.
+  binaries:
+    needs: validation
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            key: macos-aarch64
+          - os: ubuntu-24.04
+            key: linux-x86_64
+          - os: ubuntu-24.04-arm
+            key: linux-aarch64
+          - os: windows-2022
+            key: windows-x86_64
+          # - os: windows-11-arm
+          #   key: windows-aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+      - name: Setup Bazelrc (Windows)
+        shell: pwsh
+        run: |
+          echo "TEMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
+          echo "TMP=$env:RUNNER_TEMP" >> "$env:GITHUB_ENV"
+          # The short output root on the runner's data drive; windows-11-arm has
+          # none, and C: serves.
+          $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
+          echo "startup --output_user_root=$root" > ./user.bazelrc
+        if: startswith(runner.os, 'Windows')
+      - name: Build the native parser (Unix)
+        if: startswith(runner.os, 'Windows') != true
+        run: |
+          bazel ${BAZEL_STARTUP_FLAGS[@]} build -c opt //kconfig/private/parser:kconfig_tool
+          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery -c opt --output=files //kconfig/private/parser:kconfig_tool)" "${RUNNER_TEMP}/kconfig_tool-${{ matrix.key }}"
+      - name: Build the native parser (Windows)
+        if: startswith(runner.os, 'Windows')
+        shell: pwsh
+        run: |
+          & bazel $env:BAZEL_STARTUP_FLAGS build -c opt //kconfig/private/parser:kconfig_tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tool = & bazel $env:BAZEL_STARTUP_FLAGS cquery -c opt --output=files //kconfig/private/parser:kconfig_tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item $tool "$env:RUNNER_TEMP/kconfig_tool-${{ matrix.key }}.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kconfig_tool-${{ matrix.key }}
+          path: ${{ runner.temp }}/kconfig_tool-${{ matrix.key }}*
+          if-no-files-found: error
+
   # Delegate the source archive build + attestation + GitHub release
   # creation to the bazel-contrib reusable workflow. BCR's verifier
   # specifically trusts attestations whose builder ID points at this
@@ -83,10 +140,11 @@ jobs:
   # `release_prep.sh` at `.github/workflows/release_prep.sh` is the
   # hardcoded build hook — it gets `${tag_name}` as `$1`, must write
   # release notes to stdout, and must produce files matching the
-  # `release_files` globs in cwd. It builds the WebAssembly backend
-  # with Bazel and puts it into the archive.
+  # `release_files` globs in cwd. It builds the WebAssembly module with
+  # Bazel, takes the native builds from the `binaries` job's artifacts,
+  # and bakes their integrities into the archive.
   release:
-    needs: tag
+    needs: [tag, binaries]
     permissions:
       contents: write
       id-token: write
@@ -100,6 +158,7 @@ jobs:
       release_files: |
         rules_kconfig-*.tar.gz
         kconfig.wasm
+        kconfig_tool-*
       prerelease: false
       tag_name: ${{ needs.tag.outputs.tag }}
 

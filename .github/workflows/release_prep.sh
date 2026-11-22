@@ -11,10 +11,13 @@
 #   Writes the following to the current directory. These paths must match
 #   the `release_files` globs in release.yaml.
 #     rules_kconfig-${TAG}.tar.gz   The Bazel module source archive, whose
-#                                   kconfig/private/wasm/module.bzl names the
+#                                   kconfig/private/parser.bzl names the
 #                                   URL and integrity of the module below.
-#     kconfig.wasm                  The WebAssembly backend the `kconfig`
+#     kconfig.wasm                  The WebAssembly module the `kconfig`
 #                                   extension of this release downloads.
+#     kconfig_tool-<os>-<cpu>[.exe] The native builds of the parser, from the
+#                                   `binaries` job of release.yaml, for the
+#                                   Bazels that cannot run the module.
 #
 # Output:
 #   Release notes to stdout. The release_ruleset workflow redirects
@@ -45,7 +48,7 @@ if [[ "${MODULE_VERSION}" != "${TAG}" ]]; then
 fi
 
 SCRATCH="$(mktemp -d)"
-MODULE_BZL="${WORKSPACE}/kconfig/private/wasm/module.bzl"
+MODULE_BZL="${WORKSPACE}/kconfig/private/parser.bzl"
 cleanup() {
     # Put back the source form of module.bzl; the baked form lives in the archive.
     if [[ -f "${SCRATCH}/module.bzl.orig" ]]; then
@@ -55,17 +58,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Build the WebAssembly backend: CPython, kconfiglib and this repository's
-# generators, built by rules_venv's `py_wasm_module` from inputs pinned by
-# their hashes (the CPython devkit, wasi-sdk, Wizer). It is attached to the
-# release and attested with the archive, and its integrity is baked into the
-# archive's module.bzl so that the `kconfig` extension of this release
-# downloads exactly this module.
+# Build the WebAssembly backend: the kernel's Kconfig parser and this
+# repository's generators in Rust, built for wasm32-wasip1 from inputs pinned
+# by their hashes (the kernel sources, the Rust toolchain, the wasi-sdk). It
+# is attached to the release and attested with the archive, and its integrity
+# is baked into the archive's module.bzl so that the `kconfig` extension of
+# this release downloads exactly this module.
 rm -f kconfig.wasm
-(cd "${WORKSPACE}" && bazel build //kconfig/private/wasm:kconfig_wasm)
-cp "${WORKSPACE}/$(cd "${WORKSPACE}" && bazel cquery --output=files //kconfig/private/wasm:kconfig_wasm)" kconfig.wasm
+(cd "${WORKSPACE}" && bazel build --config=wasm32 -c opt //kconfig/private/parser:kconfig_wasm)
+cp "${WORKSPACE}/$(cd "${WORKSPACE}" && bazel cquery --config=wasm32 -c opt --output=files //kconfig/private/parser:kconfig_wasm)" kconfig.wasm
 chmod 0644 kconfig.wasm
-MODULE_INTEGRITY="sha256-$(shasum --algorithm 256 kconfig.wasm | awk '{ print $1 }' | xxd -r -p | base64)"
+integrity() {
+    echo "sha256-$(shasum --algorithm 256 "$1" | awk '{ print $1 }' | xxd -r -p | base64)"
+}
+MODULE_INTEGRITY="$(integrity kconfig.wasm)"
 if ! grep -q '^MODULE_INTEGRITY = ""$' "${MODULE_BZL}"; then
     echo "ERROR: ${MODULE_BZL} has no empty MODULE_INTEGRITY to fill in"
     exit 1
@@ -73,6 +79,27 @@ fi
 cp "${MODULE_BZL}" "${SCRATCH}/module.bzl.orig"
 sed -i.bak "s|^MODULE_INTEGRITY = \"\"$|MODULE_INTEGRITY = \"${MODULE_INTEGRITY}\"|" "${MODULE_BZL}" && rm -f "${MODULE_BZL}.bak"
 grep -q "^MODULE_INTEGRITY = \"${MODULE_INTEGRITY}\"$" "${MODULE_BZL}"
+
+# The native builds, from the `binaries` job of release.yaml, which the
+# reusable workflow downloads into `artifacts/<name>/`. Each is attached and
+# its integrity baked in; a platform with no build is left empty, and the
+# extension offers no native build there.
+TOOL_INTEGRITIES=""
+for key in linux-aarch64 linux-x86_64 macos-aarch64 windows-aarch64 windows-x86_64; do
+    rm -f "kconfig_tool-${key}" "kconfig_tool-${key}.exe"
+    built="$(ls "${WORKSPACE}/artifacts/kconfig_tool-${key}/kconfig_tool-${key}"* 2>/dev/null | head -n 1 || true)"
+    if [[ -z "${built}" ]]; then
+        echo "WARNING: no native build for ${key}; the release will carry none"
+        continue
+    fi
+    cp "${built}" "$(basename "${built}")"
+    chmod 0755 "$(basename "${built}")"
+    tool_integrity="$(integrity "$(basename "${built}")")"
+    sed -i.bak "s|^    \"${key}\": \"\",$|    \"${key}\": \"${tool_integrity}\",|" "${MODULE_BZL}" && rm -f "${MODULE_BZL}.bak"
+    grep -q "^    \"${key}\": \"${tool_integrity}\",$" "${MODULE_BZL}"
+    TOOL_INTEGRITIES="${TOOL_INTEGRITIES}- \`${key}\`: \`${tool_integrity}\`
+"
+done
 
 # Build the source archive. Exclude .git (history isn't needed by
 # consumers), .github (release infrastructure isn't part of the ruleset)
@@ -91,12 +118,19 @@ tar -czf "${SCRATCH}/${ARCHIVE}" \
     --exclude="./bazel-*" \
     --exclude="./MODULE.bazel.lock" \
     --exclude="./kconfig.wasm" \
+    --exclude="./kconfig_tool-*" \
+    --exclude="./artifacts" \
     -C "${WORKSPACE}" .
 mv "${SCRATCH}/${ARCHIVE}" "${ARCHIVE}"
 
 # Render release notes by substituting {version} and {module_integrity}
 # into the template. release_notes.template lives in `.github/`.
+printf '%s' "${TOOL_INTEGRITIES:-- none}" > "${SCRATCH}/tool_integrities.txt"
 sed -e "s#{version}#${TAG}#g" -e "s#{module_integrity}#${MODULE_INTEGRITY}#g" \
+    -e "/{tool_integrities}/{
+r ${SCRATCH}/tool_integrities.txt
+d
+}" \
     "${WORKSPACE}/.github/release_notes.template" > "${SCRATCH}/release_notes.txt"
 
 # Emit the rendered notes on the original stdout (fd 3) — that's the

@@ -1,64 +1,9 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_venv//python:py_binary.bzl", "py_binary")
-load("@rules_venv//python:py_library.bzl", "py_library")
-load("@rules_venv//python/pytest:defs.bzl", "py_pytest_test")
 load(":kconfig_toolchain_alias.bzl", "kconfig_toolchain_alias")
-
-exports_files([
-    "overrides_gen.py",
-    "kconfig_parser.py",
-    "repository_gen.py",
-])
 
 kconfig_toolchain_alias(
     name = "current_kconfig_toolchain",
-)
-
-py_library(
-    name = "kconfig_parser",
-    srcs = ["kconfig_parser.py"],
-    deps = [":current_kconfig_toolchain"],
-)
-
-py_library(
-    name = "repository_gen_lib",
-    srcs = ["repository_gen.py"],
-    visibility = ["//kconfig/private:__subpackages__"],
-    deps = [":kconfig_parser"],
-)
-
-py_binary(
-    name = "repository_gen",
-    srcs = ["repository_gen.py"],
-    deps = [":kconfig_parser"],
-)
-
-py_library(
-    name = "overrides_gen_lib",
-    srcs = ["overrides_gen.py"],
-    visibility = ["//kconfig/private:__subpackages__"],
-    deps = [":kconfig_parser"],
-)
-
-py_pytest_test(
-    name = "repository_gen_test",
-    srcs = ["repository_gen_test.py"],
-    deps = [":repository_gen"],
-)
-
-py_pytest_test(
-    name = "kconfig_parser_test",
-    srcs = ["kconfig_parser_test.py"],
-    deps = [":kconfig_parser"],
-)
-
-py_pytest_test(
-    name = "overrides_gen_test",
-    srcs = ["overrides_gen_test.py"],
-    deps = [
-        ":overrides_gen_lib",
-        ":repository_gen_lib",
-    ],
 )
 
 py_binary(
@@ -82,7 +27,7 @@ bzl_library(
     visibility = ["//kconfig:__pkg__"],
     deps = [
         ":bazel_tools_bzl_lib",
-        "//kconfig/private/wasm:bzl_lib",
+        "//kconfig/private/parser:bzl_lib",
         "@rules_venv//python:bzl_lib",
     ],
 )

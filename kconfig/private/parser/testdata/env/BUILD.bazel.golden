@@ -1,0 +1,78 @@
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+exports_files(glob(["kconfig_srcs/**"]) + ["test_kconfig", "kconfig.manifest.json", "rendered.config"])
+string_flag(
+    name = "CONFIG_BOARD",
+    build_setting_default = "k2",
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_FALLBACK",
+    build_setting_default = "none",
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig/private:kconfig_autoconf.bzl", "kconfig_autoconf")
+load("@rules_kconfig//kconfig/private:kconfig_savedefconfig.bzl", "kconfig_savedefconfig")
+load("@rules_kconfig//kconfig/private:kconfig_settings_group.bzl", "kconfig_settings_group")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+
+kconfig_settings_group(
+    name = "settings",
+    settings = [
+        ":CONFIG_BOARD",
+        ":CONFIG_FALLBACK",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_autoconf(
+    name = "autoconf",
+    settings = [
+        ":CONFIG_BOARD",
+        ":CONFIG_FALLBACK",
+    ],
+    types = {
+        "CONFIG_BOARD": "string",
+        "CONFIG_FALLBACK": "string",
+    },
+    visibility = ["//visibility:public"],
+)
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config.h.in",
+    deps = [":autoconf"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "config",
+    hdrs = ["config.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_savedefconfig(
+    name = "savedefconfig",
+    settings = [
+        ":CONFIG_BOARD",
+        ":CONFIG_FALLBACK",
+    ],
+    defaults = {
+        "CONFIG_BOARD": "k2",
+        "CONFIG_FALLBACK": "none",
+    },
+    types = {
+
+    },
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig:kconfig_library.bzl", "kconfig_library")
+
+kconfig_library(
+    name = "lib",
+    root = "kconfig_srcs/Kconfig",
+    srcs = glob(["kconfig_srcs/**"]),
+    visibility = ["//visibility:public"],
+)
