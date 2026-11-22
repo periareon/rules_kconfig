@@ -177,71 +177,77 @@ kconfig.repo(
 )
 use_repo(kconfig, "my_kconfig")
 </code></pre>
-<p>The Kconfig tree is parsed by the Linux kernel's Kconfig parser, in one of two
-builds a release publishes; see <a href="#backends">Backends</a>. No Python is needed,
-except for <code>menuconfig</code>, which runs
+<p>The tree is parsed by the Linux kernel's own Kconfig parser, which the
+extension downloads for the host (see <a href="#parser">Parser</a>); no Python is
+needed, except for <code>menuconfig</code>, which runs
 <a href="https://github.com/ulfalizer/Kconfiglib">kconfiglib</a>'s interface on a
 <a href="https://github.com/bazelbuild/rules_python">rules_python</a> toolchain.</p>
-<h2 id="backends"><a class="header" href="#backends">Backends</a></h2>
-<p>A kconfig repository is generated from a parsed Kconfig tree by the parser of
-<code>kconfig/private/parser</code>, which a release ships as a WebAssembly module and as
-a native build per platform.</p>
+<h2 id="kconfig-versions"><a class="header" href="#kconfig-versions">Kconfig versions</a></h2>
+<p>Kconfig has no version of its own: the language is whatever the kernel's
+<code>scripts/kconfig</code> accepts at a release, and that has changed over the years.
+<code>kconfig_version</code> names the kernel release a tree is written for, and the
+tree is then parsed and resolved exactly as that release's <code>conf</code> would:</p>
+<ul>
+<li>For a kernel tree, its release: <code>6.12</code>, or <code>6.12.7</code>.</li>
+<li>For a project with its own copy of the parser, the release the copy was
+synced from. U-Boot's is <code>4.19</code>; barebox and BusyBox are near it.</li>
+<li>A tree that uses <code>---help---</code>, <code>optional</code> choices or <code>option</code> needs a
+version before <code>6.10</code>, where the kernel dropped them.</li>
+</ul>
+<p>Any <code>major.minor</code> or <code>major.minor.patch</code> is accepted; the default is <code>6.17</code>,
+the newest release checked. <code>rules_kconfig</code> carries the parser of the
+releases where the language changed, and a version is served by the newest
+one at or below it:</p>
+<div class="table-wrapper"><table><thead><tr><th><code>kconfig_version</code></th><th>parser</th></tr></thead><tbody>
+<tr><td><code>6.12</code> and newer</td><td>Linux 6.12</td></tr>
+<tr><td><code>4.19</code> to <code>6.11</code></td><td>Linux 4.19</td></tr>
+</tbody></table>
+</div>
+<p>A version below <code>4.19</code> is an error. The version is recorded in the
+generated repository's manifest, and the <code>kconfig.overrides</code> layered on the
+repository use the same parser; they take no version of their own.</p>
+<pre><code class="language-python">kconfig.repo(
+    name = "u_boot",
+    kconfig = "@u_boot//:Kconfig",
+    kconfig_version = "4.19",
+)
+</code></pre>
+<h2 id="parser"><a class="header" href="#parser">Parser</a></h2>
+<p>The parser is the Linux kernel's <code>scripts/kconfig</code>, of every release in
+<a href="#kconfig-versions">Kconfig versions</a>, with this repository's generators,
+in one program that a release of <code>rules_kconfig</code> ships in two builds. The
+<code>kconfig</code> extension downloads the one the host can run, through Bazel's
+repository cache, the first time a repository is generated. Both builds
+generate the same repository, byte for byte.</p>
 <h3 id="webassembly"><a class="header" href="#webassembly">WebAssembly</a></h3>
-<p>Each release of <code>rules_kconfig</code> publishes <code>kconfig.wasm</code>: the Linux kernel's
-Kconfig parser (<code>scripts/kconfig</code>, GPL-2.0) and the generators, written in
-Rust, built for <code>wasm32-wasip1</code> by <code>//kconfig/private/parser</code> with
-<code>rules_rust</code> and the wasi-sdk toolchain of <code>tools/wasi_sdk</code>; the module
-imports nothing from its host. The
-kernel sources are fetched when the module is built, from a pinned tag, and
-patched for the syntax kconfiglib accepts and the kernel's no longer does
-(<code>---help---</code>, <code>optional</code> choices, <code>option</code>, unquoted prompts and sources) and
-to report an error instead of exiting; see <code>kconfig/private/parser/kernel</code>.
-Where the kernel's parser and kconfiglib disagree on a value, the module
-answers as kconfiglib does.
-The release bakes the module's URL and integrity into the
-rules, and the <code>kconfig</code> extension downloads it through Bazel's repository
-cache the first time a repository is generated with it. On Bazel 9.3 or newer
-with</p>
+<p>On Bazel 9.3 or newer with</p>
 <pre><code class="language-text">common --experimental_repository_ctx_execute_wasm
 </code></pre>
-<p>in <code>.bazelrc</code>, the repository rules run it with <code>repository_ctx.execute_wasm</code>
-and no Python interpreter is needed. The module cannot touch the filesystem,
+<p>in <code>.bazelrc</code>, the repository rules run the parser as a WebAssembly module
+with <code>repository_ctx.execute_wasm</code>. The module cannot touch the filesystem,
 the environment or a shell, so the rules do it on its behalf: they read the
 source tree ahead, every directory's listing and every <code>Kconfig*</code> file, and
 hand it to the module, which asks for what that leaves, <code>$(shell,...)</code>
 commands, files with other names and the variables a Kconfig names, in a
-further round. Everything read is recorded as an input of the
-repository, environment variables through <code>repository_ctx.getenv</code>, so a
-repository that ran no host command is reproducible and Bazel may take it from
-the repo contents cache instead of generating it again. With Bazel 10,
+further round. Everything read is recorded as an input of the repository,
+environment variables through <code>repository_ctx.getenv</code>, so a repository that
+ran no host command is reproducible and Bazel may take it from the repo
+contents cache instead of generating it again. With Bazel 10,
 <code>--experimental_repository_ctx_wasm_compilation</code> compiles the module to JVM
 bytecode, which is several times faster than interpreting it.</p>
 <h3 id="native"><a class="header" href="#native">Native</a></h3>
-<p>Each release also attaches the same program built natively,
-<code>kconfig_tool-&lt;os&gt;-&lt;cpu&gt;</code>, for Linux and Windows on x86_64 and aarch64 and for
-macOS on aarch64, built on a runner of each platform with its host toolchain.
-Where Bazel cannot run the module, the rules run the build for the host with
-<code>repository_ctx.execute</code>, under the same round protocol with the request and
-the response in files, so that a repository comes out byte for byte the same
-whichever build generated it. This is the backend for Bazel 7 and 8.</p>
-<h3 id="choosing"><a class="header" href="#choosing">Choosing</a></h3>
-<p>The WebAssembly module is used whenever Bazel can run it and there is one;
-otherwise the native build, where there is one for the host; a release has
-both, a source checkout of <code>rules_kconfig</code> has neither. Where neither can be
-used the repository rule fails with an error that says why. There is no
-setting to choose; the Bazel flag and the host are the switch.</p>
-<p>For a source checkout, <code>RULES_KCONFIG_WASM</code> and <code>RULES_KCONFIG_TOOL</code> (through
-<code>--repo_env</code>) name a module and a native build to use, an absolute path or a
-URL, for instance the outputs of
+<p>Where Bazel cannot run the module, Bazel 7 and 8 or without the flag, the
+rules run the same program built natively for the host, with
+<code>repository_ctx.execute</code> under the same protocol. A release has native builds
+for Linux and Windows on x86_64 and aarch64 and for macOS on aarch64.</p>
+<h3 id="a-source-checkout"><a class="header" href="#a-source-checkout">A source checkout</a></h3>
+<p>A source checkout of <code>rules_kconfig</code> carries no builds. Name one with
+<code>RULES_KCONFIG_WASM</code> or <code>RULES_KCONFIG_TOOL</code> through <code>--repo_env</code>: an
+absolute path or a URL, for instance the outputs of
 <code>bazel build --config=wasm32 @rules_kconfig//kconfig/private/parser:kconfig_wasm</code>
-and <code>bazel build @rules_kconfig//kconfig/private/parser:kconfig_tool</code>;
-<code>RULES_KCONFIG_WASM_INTEGRITY</code> and <code>RULES_KCONFIG_TOOL_INTEGRITY</code> may give the
-integrity (<code>sha256-...</code>) of a URL.</p>
-<p>Both builds produce the same repository, byte for byte, and the same one
-kconfiglib produced before the parser replaced it:
-<code>//kconfig/private/parser:parser_test</code> runs the native build under the
-module's protocol against golden files generated by kconfiglib, and CI
-generates the example repositories with both builds.</p>
+and <code>bazel build @rules_kconfig//kconfig/private/parser:kconfig_tool</code>.
+<code>RULES_KCONFIG_WASM_INTEGRITY</code> and <code>RULES_KCONFIG_TOOL_INTEGRITY</code> may give
+the integrity (<code>sha256-...</code>) of a URL.</p>
 <h2 id="generated-repository"><a class="header" href="#generated-repository">Generated repository</a></h2>
 <p>For a Kconfig file such as:</p>
 <pre><code class="language-text">config FOO
@@ -475,7 +481,9 @@ complete working example including an overrides layer.</p>
 <p>When a kconfig repository is declared by an external dependency, use
 <code>kconfig.overrides</code> to overlay your own <code>.config</code> without modifying the
 external module. If the source repository was itself created with a
-<code>.config</code>, the overrides are stacked on top of those base values:</p>
+<code>.config</code>, the overrides are stacked on top of those base values. The tree
+is parsed again with the variables and the <code>kconfig_version</code> of the source
+repository, which its manifest records:</p>
 <pre><code class="language-python">kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.overrides(
     name = "my_board_config",
