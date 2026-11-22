@@ -1,0 +1,36 @@
+# A Kconfig tree in the grammar of the kernel's parser of 4.19, which U-Boot,
+# barebox and BusyBox carry: `option modules`, `---help---` and `optional`
+# choices, none of which the current kernel's parser accepts.
+
+mainmenu "Kconfig written for the parser of 4.19"
+
+config MODULES
+	bool
+	default y
+	option modules
+
+config FEATURE
+	bool "A feature"
+	default y
+	---help---
+	  Help text introduced with ---help---, which the kernel dropped in
+	  5.8.
+
+choice
+	prompt "Backend"
+	optional
+	---help---
+	  An optional choice, which the kernel dropped in 6.10: with nothing
+	  chosen, no backend is built.
+
+config BACKEND_A
+	bool "Backend A"
+
+config BACKEND_B
+	bool "Backend B"
+
+endchoice
+
+config NAME
+	string "Name"
+	default "legacy"

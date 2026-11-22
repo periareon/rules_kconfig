@@ -214,7 +214,7 @@ impl Host {
         }
     }
 
-    /// The output of a `$(shell,...)` command as kconfiglib returns it; None
+    /// The output of a `$(shell,...)` command as the parser reads it; None
     /// while unknown.
     pub fn shell(&mut self, command: &[u8]) -> Option<Vec<u8>> {
         if !self.shell_results.contains_key(command) {

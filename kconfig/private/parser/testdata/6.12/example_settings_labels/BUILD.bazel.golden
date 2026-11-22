@@ -1,0 +1,79 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@rules_kconfig//kconfig/private:kconfig_setting_alias.bzl", "kconfig_setting_alias")
+exports_files(glob(["kconfig_srcs/**"]) + ["test_kconfig", "kconfig.manifest.json", "rendered.config"])
+bool_flag(
+    name = "CONFIG_ENABLED",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+kconfig_setting_alias(
+    name = "CONFIG_VERSION",
+    actual = "@//:version",
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig/private:kconfig_autoconf.bzl", "kconfig_autoconf")
+load("@rules_kconfig//kconfig/private:kconfig_savedefconfig.bzl", "kconfig_savedefconfig")
+load("@rules_kconfig//kconfig/private:kconfig_settings_group.bzl", "kconfig_settings_group")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+
+kconfig_settings_group(
+    name = "settings",
+    settings = [
+        ":CONFIG_ENABLED",
+        ":CONFIG_VERSION",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_autoconf(
+    name = "autoconf",
+    settings = [
+        ":CONFIG_ENABLED",
+        ":CONFIG_VERSION",
+    ],
+    types = {
+        "CONFIG_ENABLED": "bool",
+        "CONFIG_VERSION": "int",
+    },
+    visibility = ["//visibility:public"],
+)
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config.h.in",
+    deps = [":autoconf"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "config",
+    hdrs = ["config.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_savedefconfig(
+    name = "savedefconfig",
+    settings = [
+        ":CONFIG_ENABLED",
+        ":CONFIG_VERSION",
+    ],
+    defaults = {
+        "CONFIG_ENABLED": "False",
+        "CONFIG_VERSION": "99",
+    },
+    types = {
+
+    },
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig:kconfig_library.bzl", "kconfig_library")
+
+kconfig_library(
+    name = "lib",
+    root = "kconfig_srcs/Kconfig",
+    srcs = glob(["kconfig_srcs/**"]),
+    visibility = ["//visibility:public"],
+)

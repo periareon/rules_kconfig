@@ -1,0 +1,12 @@
+{
+  "root": "Kconfig",
+  "files": [
+    "Kconfig",
+    "drivers/a/Kconfig",
+    "drivers/b/Kconfig",
+    "extra/Kconfig.extra"
+  ],
+  "kconfig_version": "4.19",
+  "parser_version": "4.19",
+  "config": "rendered.config"
+}

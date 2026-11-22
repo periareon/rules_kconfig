@@ -1,0 +1,16 @@
+# CONFIG_FOO is not set
+CONFIG_COUNT=3
+CONFIG_LABEL="héllo"
+CONFIG_ADDR=0x1000
+CONFIG_MODULES=y
+
+#
+# Drivers
+#
+CONFIG_DRIVER_A=y
+CONFIG_EXTRA=7
+CONFIG_QUOTED="with \"quotes\" and \\ backslash"
+CONFIG_TAINTED="from-shell"
+CONFIG_INDIRECT=7
+CONFIG_PICK_A=y
+# CONFIG_PICK_B is not set

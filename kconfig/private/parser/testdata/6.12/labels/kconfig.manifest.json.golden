@@ -1,0 +1,15 @@
+{
+  "root": "Kconfig",
+  "files": [
+    "Kconfig",
+    "drivers/a/Kconfig",
+    "drivers/b/Kconfig",
+    "extra/Kconfig.extra"
+  ],
+  "kconfig_version": "6.12",
+  "parser_version": "6.12",
+  "settings_labels": {
+    "CONFIG_TAINTED": "@//:tainted",
+    "CONFIG_COUNT": "@//:count"
+  }
+}

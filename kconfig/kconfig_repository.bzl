@@ -9,6 +9,7 @@ load(
     "select_backend",
     "write_files",
 )
+load("//kconfig/private:versions.bzl", "DEFAULT_KCONFIG_VERSION", "PARSER_VERSIONS", "parser_version")
 
 def _config_ws_path(label):
     return (label.package + "/" + label.name).lstrip("/")
@@ -26,6 +27,8 @@ def _generate_with_parser(repository_ctx, backend, kconfig, repo_name):
         env[name] = str(path)
     request = new_request(repository_ctx, "repository", kconfig, kconfig.dirname, env = env)
     request["repo_name"] = repo_name
+    request["kconfig_version"] = repository_ctx.attr.kconfig_version
+    request["parser_version"] = parser_version(repository_ctx.attr.kconfig_version, repository_ctx.name)
     request["defaults"] = None
     request["config_ws_path"] = None
     request["kconfig_env"] = env
@@ -84,10 +87,11 @@ The Kconfig source tree is symlinked into `kconfig_srcs/` and a
 A repo-named symlink (e.g. `@my_kconfig//:my_kconfig`) points to
 the manifest for downstream consumers.
 
-The Kconfig tree is parsed by the kernel's parser, as the WebAssembly module a
-release of rules_kconfig carries (Bazel 9.3 or newer with
-`--experimental_repository_ctx_execute_wasm`) or as the release's native build
-for the host; both generate the same repository.
+The Kconfig tree is parsed by the kernel's parser of the release
+`kconfig_version` names, as the WebAssembly module a release of rules_kconfig
+carries (Bazel 9.3 or newer with `--experimental_repository_ctx_execute_wasm`)
+or as the release's native build for the host; both generate the same
+repository.
 
 Prefer using the `kconfig` module extension rather than calling this rule
 directly.
@@ -126,6 +130,22 @@ toolchain Bazel would pick for a platform.
         "kconfig": attr.label(
             doc = "The root Kconfig file to parse. All files referenced via `source` directives are followed automatically.",
             mandatory = True,
+        ),
+        "kconfig_version": attr.string(
+            doc = """\
+The kernel release the tree is written for: `{default}` (the default), `6.12.7`,
+`4.19`. Kconfig has no version of its own, so this is the release of the
+kernel tree, or the one a project's copy of `scripts/kconfig` was synced
+from (U-Boot: `4.19`). The tree is parsed and resolved as that release's
+`conf` would, by the newest parser rules_kconfig builds at or below the
+version ({parsers}); a version below the oldest is an error. The version is
+recorded in the manifest, and the overrides layered on the repository use
+the same.
+""".format(
+                default = DEFAULT_KCONFIG_VERSION,
+                parsers = ", ".join(["`{}`".format(v) for v in PARSER_VERSIONS]),
+            ),
+            default = DEFAULT_KCONFIG_VERSION,
         ),
         "settings_labels": attr.string_dict(
             doc = """\

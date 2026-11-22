@@ -1,61 +1,115 @@
-"""The kernel's Kconfig parser, fetched for the WebAssembly module.
+"""The kernel's Kconfig parser, fetched for the parser builds, per version.
 
-`kconfig.wasm` parses with the C implementation from Linux (`scripts/kconfig`,
-GPL-2.0), compiled to WebAssembly and linked into the Rust module behind
-`kconfig/private/parser/shim.c`. This repository rule fetches the files
-of one kernel release by hash, applies `kconfiglib_dialect.patch` and writes
-the BUILD file that compiles them, from `BUILD.linux_kconfig.bazel`. The host
-calls the sources make are renamed to the functions of the shim, which serve
-them from the module's host (see `host.h`).
+The parser rules_kconfig ships is the C implementation from Linux
+(`scripts/kconfig`, GPL-2.0), linked behind `kconfig/private/parser/shim.c`
+and built natively and to WebAssembly. Kconfig has no version of its own, so
+a version of the parser is a kernel release (see `//kconfig/private:versions.bzl`),
+and this repository rule fetches the files of one release by hash, applies
+the host patch for it and writes the BUILD file that compiles them.
 
-The release is 6.9, the last with `optional` choices, which kconfiglib
-supports and trees such as U-Boot's use. The patch restores more of what
-kconfiglib accepts and later kernels dropped: `---help---`, `/` and `.` in
-unquoted words, as in `source lib/mbedtls/Kconfig`, and the `option`
-statement; and a value kconfiglib and the kernels U-Boot's kconfig comes
-from calculate differently: an int or hex symbol nothing sets is "", not
-"0" or "0x0", so that `default 0x5fa0 if SUNXI_SRAM_ADDRESS = 0x0` does not
-apply to a board without the symbol (U-Boot's `SPL_MAX_SIZE`).
+The parsers of every version link into one program, each compiled with a
+prefix header (`prefix_<id>.h`) that renames its exported names.
+
+The host patch changes nothing in what the parser accepts or calculates: it
+makes the places where `conf` would `exit(1)` report to the host instead
+(`kconfig_host_fail`), with the message `conf` would print, so that the
+module returns an error; and it drops the heading `conf_write` puts at the
+top of a `.config`, which the generators write themselves. The libc calls
+the sources make for files, the environment and the shell are renamed to the
+shim's by `host.h`, which every source is compiled with (see the BUILD
+files).
 """
 
-_TAG = "v6.9"
+load("//kconfig/private:versions.bzl", "PARSER_VERSIONS", "version_id")
 
 _URL = "https://raw.githubusercontent.com/torvalds/linux/{tag}/scripts/{path}"
 
-# The files of the parser, by path under `scripts/`, and their SHA-256.
-_FILES = {
-    "kconfig/array_size.h": "90ea8c7000afb1f9ad8504dcc24c1ddcd3c08239787248b617fc632ed3577ce4",
-    "kconfig/confdata.c": "cf9d9fd85667739ec793e621d0e929e586367ce13b609268bcfbf434f3914cc9",
-    "kconfig/expr.c": "bc5b386694072f56348cd6d2c0fbe91cdf0dbd31809bf815a6c075bae03c7cb5",
-    "kconfig/expr.h": "4f0fda1f44089fe865e4af181d81a18f00d7c6660b4badee3f2e27609ed49dc6",
-    "kconfig/hashtable.h": "91232a3bb29efe1c6a443f602bdea9ce69f6e38f77fc631742a095c2e86b3e26",
-    "kconfig/internal.h": "4686ba223ea1f6512f3379b8fe5ef338cc1afd1f6ed5d045f4fb4cfd1ba81a17",
-    "kconfig/lexer.l": "5e99b9cf56574a3b4a6e5a62fee4456e678da1aa9c91c1e6691b1a1819355180",
-    "kconfig/list.h": "17ab845857ce614e5ae8aa89c8e66d40c97df12156a680a83f9b6fc435398eb1",
-    "kconfig/list_types.h": "36df90fe1e5b16bff75afbbe2b0018f21eaeca9fe67f95e054cf645f28071356",
-    "kconfig/lkc.h": "d15335c45a666cf617a157f2efb766caa7427f26d87ba7eba38e9d1f04e33f7d",
-    "kconfig/lkc_proto.h": "448a0f9dc3daa7ada69d9c3b8aa8e1699a61a805df9c711cad7cab86e343e3d4",
-    "kconfig/menu.c": "6008b5f96e6c801c3985f6fafd2a4c2e47d89fb08738ec0c0b2082c282608a15",
-    "kconfig/parser.y": "b1960ed6f78ab21c1ef6b66142d38960f45887cfc03443304e8994035ada4830",
-    "kconfig/preprocess.c": "3f084c125c2cbc56024d01d4c5d52e7cf1d92f5b776f734c17c362d880dc56fe",
-    "kconfig/preprocess.h": "f7e9581e1d92804acadca02ffdbd298e681cb4d1fb1e04bacb59e0e2a7fe6f9b",
-    "kconfig/symbol.c": "af2eee55d351f781a049f1f0c97f98c6e34879d8f8b9a1d953d45080b5e69cd3",
-    "kconfig/util.c": "31472e70138bb50b3f918bda3325d5f00258e95d3e9e0f8155a38f73eeea7788",
+# Each version: the kernel tag, the files of the parser by path under
+# `scripts/` with their SHA-256, the host patch and the BUILD file. 6.12
+# compiles each source on its own and takes the headers of `scripts/include`;
+# 4.19 is one translation unit, `zconf.y` including the rest.
+_KERNELS = {
+    "4.19": struct(
+        tag = "v4.19",
+        files = {
+            "kconfig/confdata.c": "dd3bce7105b0a8219ef81e8ca02edfb439ffe6c08f08d42693898964d5638e77",
+            "kconfig/expr.c": "20e2589713ebc6d0aa6fc2ba7844df9fe6ad491ce209d744faac156075948ca1",
+            "kconfig/expr.h": "6f2db72e7384b187a64625e0c9bf01868fc67265686f170bb99bdf9b0b61a9d7",
+            "kconfig/kconf_id.c": "a8fbd8e3855c7c81f69b35e278ade8df12c8a80cde9c8941b6e7ab0ec0914f0a",
+            "kconfig/list.h": "fc686618be614e481ef6bfdce9d33f97dde4e94682ec57af1138122c48a2df3b",
+            "kconfig/lkc.h": "c81fd8b4b4a705309b5c314f87bca7958a335cc4b230f313edd47466e5d855bf",
+            "kconfig/lkc_proto.h": "1fc7cdbcc9bd6e482b708b89355bb471a66ad96a3d14e7f9399c5aa03e4ed74d",
+            "kconfig/menu.c": "6c3ae3c066e7932c99eb98d6b2da07531dd4279d0a134eccb4342c21cb118be7",
+            "kconfig/preprocess.c": "83b39497c37efcb399622be3dc4493c09071fb502c04684164120ab01479025f",
+            "kconfig/symbol.c": "6d1b9a3f176eb3b3d771e76f53372aefa676653ec8e441843da358d7ea70cf49",
+            "kconfig/util.c": "d5340d4d939671852b6c0e012ac69aa052df387761f20d0ed2ceaa64d905d682",
+            "kconfig/zconf.l": "62413ba0b6b5a0972993a277c6b7045bc5764dc0b7b3dbaf3849fcb1dc842e0d",
+            "kconfig/zconf.y": "c8681edf42e4b600ddb3fd98431a776cdd5a49bd2c455d4e0ee7b82c03704be0",
+        },
+        patch = Label("//kconfig/private/parser/kernel:host_4.19.patch"),
+        build_file = Label("//kconfig/private/parser/kernel:BUILD.linux_kconfig_legacy.bazel"),
+    ),
+    "6.12": struct(
+        tag = "v6.12",
+        files = {
+            "include/array_size.h": "90ea8c7000afb1f9ad8504dcc24c1ddcd3c08239787248b617fc632ed3577ce4",
+            "include/hash.h": "036b553056d9b4728a27658ecdd33e23cd5174bf07b8cbb79a4a91a66c7fda60",
+            "include/hashtable.h": "3f3b31f8490d515f62c7a65b69145f39aeae4f3cf7963267f6d697ffd08aa377",
+            "include/list.h": "962c98d2e9cb30f559e4e53a450bacf073cf16f7e250f09073c5a3a3fd4f4f69",
+            "include/list_types.h": "36df90fe1e5b16bff75afbbe2b0018f21eaeca9fe67f95e054cf645f28071356",
+            "include/xalloc.h": "c69a8c5116bd0aac41088990401ddcfaffc1b28fe7d649117b7452b8fb5af7fa",
+            "kconfig/confdata.c": "f01e3de68d2850285243d7494ee3df6011a6d9f077b09a1a5fa4d12f820537c4",
+            "kconfig/expr.c": "e1db484d6011e0855ddad833a00ca90ac445e284e8a9cd4608114c51b2f622a2",
+            "kconfig/expr.h": "e271e4be3df369416bc002d08b2735af31ae7afa6553b21f8b840406ae92c310",
+            "kconfig/internal.h": "cadb1a49e558de332aef828b9f3e315d5e2f75c4da61e0321655c3b8ecaa29ff",
+            "kconfig/lexer.l": "6280524938851a0792b003fccd6e677f0bf83530d403d561e6469065bdc08e7a",
+            "kconfig/lkc.h": "73df35430339b649563bc1d03d7bda5183f62352d8bf9d2318f5d243434ef27b",
+            "kconfig/lkc_proto.h": "cdddc5302734086ee4dddfeb98d3a4759dfb00167aaa53ceac1f06b869c19397",
+            "kconfig/menu.c": "306c13254ea55454c6b2205024012e86d69db714dd097787b8c860b606268420",
+            "kconfig/parser.y": "c6b97276a318f31d8213306857091de4f09fcbd801aa0a12bd307fa9191a47bc",
+            "kconfig/preprocess.c": "93c62d8634e3d30d71ae5092a6e49212c980837789693643f15434e74717104e",
+            "kconfig/preprocess.h": "f7e9581e1d92804acadca02ffdbd298e681cb4d1fb1e04bacb59e0e2a7fe6f9b",
+            "kconfig/symbol.c": "7cb233b6e41943d8a014c4cd6d40f405ae0c4c39fc86fb7532025b8efd9e4a8b",
+            "kconfig/util.c": "8b9f8fe2c2abe57462c9bff27da9a50faaa6be1fea2d7eed59f5a7f989bcb38e",
+        },
+        patch = Label("//kconfig/private/parser/kernel:host_6.12.patch"),
+        build_file = Label("//kconfig/private/parser/kernel:BUILD.linux_kconfig.bazel"),
+    ),
 }
 
+def kernel_kconfig_repository_name(version):
+    """The name of the repository holding the parser of a version.
+
+    Args:
+        version: One of `PARSER_VERSIONS`.
+
+    Returns:
+        str: `kernel_kconfig_6_12` for `6.12`.
+    """
+    return "kernel_kconfig_" + version_id(version)
+
 def _kernel_kconfig_repository_impl(repository_ctx):
-    for path, sha256 in _FILES.items():
+    version = repository_ctx.attr.version
+    kernel = _KERNELS[version]
+    for path, sha256 in kernel.files.items():
         output = path[len("kconfig/"):] if path.startswith("kconfig/") else path
         repository_ctx.download(
-            url = _URL.format(tag = _TAG, path = path),
+            url = _URL.format(tag = kernel.tag, path = path),
             output = output,
             sha256 = sha256,
         )
-    repository_ctx.patch(Label("//kconfig/private/parser/kernel:kconfiglib_dialect.patch"), strip = 1)
+    repository_ctx.patch(kernel.patch, strip = 1)
+    major, minor = version.split(".")
     repository_ctx.template(
         "BUILD.bazel",
-        Label("//kconfig/private/parser/kernel:BUILD.linux_kconfig.bazel"),
-        substitutions = {"{tag}": _TAG},
+        kernel.build_file,
+        substitutions = {
+            "{id}": version_id(version),
+            "{major}": major,
+            "{minor}": minor,
+            "{tag}": kernel.tag,
+            "{version}": version,
+        },
     )
     repository_ctx.file("WORKSPACE.bazel", "workspace(name = \"{}\")\n".format(repository_ctx.name))
     if hasattr(repository_ctx, "repo_metadata"):
@@ -63,6 +117,13 @@ def _kernel_kconfig_repository_impl(repository_ctx):
     return None
 
 kernel_kconfig_repository = repository_rule(
-    doc = "The Kconfig parser of Linux {}, fetched file by file by hash, with a BUILD file that compiles it for the WebAssembly module.".format(_TAG),
+    doc = "The Kconfig parser of one Linux release, fetched file by file by hash, with a BUILD file that compiles it for the parser builds.",
     implementation = _kernel_kconfig_repository_impl,
+    attrs = {
+        "version": attr.string(
+            doc = "The kernel release, one of {}.".format(", ".join(PARSER_VERSIONS)),
+            mandatory = True,
+            values = PARSER_VERSIONS,
+        ),
+    },
 )

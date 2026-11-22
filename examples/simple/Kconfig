@@ -36,7 +36,7 @@ config NUMERIC_STRING
 config MODULES
 	bool
 	default y
-	option modules
+	modules
 	help
 	  Lets tristate symbols take the value m.
 

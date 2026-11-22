@@ -191,6 +191,10 @@ pub struct Request<'a> {
     pub settings_options: Option<&'a Map<String, Vec<String>>>,
     /// The variables the `env` attribute gives the tree, for the manifest.
     pub env: &'a [(Vec<u8>, Vec<u8>)],
+    /// The kernel release the consumer named, and the one this parser is
+    /// built from, for the manifest.
+    pub kconfig_version: &'a [u8],
+    pub parser_version: &'a [u8],
 }
 
 /// The files of a generated repository.
@@ -433,10 +437,11 @@ fn object(pairs: &[(Vec<u8>, Vec<u8>)]) -> Value {
 
 /// The manifest: the root and every Kconfig file, relative to `srctree`,
 /// and what an overrides repository needs to parse the tree again the same
-/// way: the labeled settings and the tree's variables.
+/// way: the version, the labeled settings and the tree's variables.
 fn build_manifest(
     filenames: &[Vec<u8>],
     srctree: &[u8],
+    versions: (&[u8], &[u8]),
     has_defaults: bool,
     settings_labels: &[(Vec<u8>, Vec<u8>)],
     env: &[(Vec<u8>, Vec<u8>)],
@@ -461,6 +466,8 @@ fn build_manifest(
             b"files".to_vec(),
             Value::Array(unique.into_iter().map(Value::Str).collect()),
         ),
+        (b"kconfig_version".to_vec(), Value::Str(versions.0.to_vec())),
+        (b"parser_version".to_vec(), Value::Str(versions.1.to_vec())),
     ];
     if has_defaults {
         manifest.push((b"config".to_vec(), Value::str("rendered.config")));
@@ -506,6 +513,7 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
     let manifest = build_manifest(
         &filenames,
         &srctree,
+        (request.kconfig_version, request.parser_version),
         has_defaults,
         request.settings_labels,
         request.env,

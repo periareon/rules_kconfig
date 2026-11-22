@@ -3,8 +3,9 @@
 `conf_config` runs the `scripts/kconfig/conf` built from the tree the way
 `make <defconfig>` or `make alldefconfig` does, in the tree's directory and
 with the variables its Makefile exports, and `kconfig_conf_test` compares the
-`.config` it writes with the `rendered.config` of the repository rules_kconfig
-generated from the same tree, defaults file and variables.
+`.config` it writes, whole but for its heading, with the `rendered.config` of
+the repository rules_kconfig generated from the same tree, defaults file and
+variables, with the parser of the tree's `kconfig_version`.
 """
 
 load("@bazel_skylib//lib:shell.bzl", "shell")
@@ -56,27 +57,25 @@ export {exports} srctree=. KCONFIG_CONFIG="$$out"
         **kwargs
     )
 
-def config_values(*, name, src, **kwargs):
-    """The `CONFIG_<name>=<value>` lines of a `.config`, for comparing two.
+def config_body(*, name, src, **kwargs):
+    """A `.config` without the heading `conf` writes, for comparing with `rendered.config`.
 
-    Everything else a `.config` has is left out: the heading, the menu
-    comments (U-Boot's older kconfig writes no `# end of` lines) and the
-    `# CONFIG_<name> is not set` lines, as which symbols at `n` a release of
-    kconfig chooses to write has changed between the kernel's parser of 6.9,
-    which rules_kconfig builds on, and later ones (6.12 lists an `imply`'d
-    symbol the earlier one leaves out). A symbol wrongly on or off still
-    shows: its `CONFIG_<name>=` line is then on one side only.
+    The heading is the four lines naming the tree and its version
+    (`# Linux/x86 6.12.0 Kernel Configuration`), which `rendered.config` has
+    no counterpart to; everything else, the values, the `# CONFIG_<name> is
+    not set` lines and the menu comments, is compared as the tree's own
+    `conf` of the same kernel release writes it.
 
     Args:
         name: The name of the target; the file is `<name>.txt`.
-        src: The `.config`.
+        src: The `.config` `conf` wrote.
         **kwargs: Common attributes for the `genrule`.
     """
     native.genrule(
         name = name,
         srcs = [src],
         outs = [name + ".txt"],
-        cmd = "grep -E '^CONFIG_' $< > $@",
+        cmd = "tail -n +5 $< > $@",
         **kwargs
     )
 
@@ -103,18 +102,14 @@ def kconfig_conf_test(*, name, repo, conf, kconfig, srcs, env, defconfig = None,
         kconfig = kconfig,
         srcs = srcs,
     )
-    config_values(
-        name = name + "_conf_values",
+    config_body(
+        name = name + "_conf_body",
         src = ":" + name + "_conf",
-    )
-    config_values(
-        name = name + "_values",
-        src = repo + "//:rendered.config",
     )
     diff_test(
         name = name,
-        failure_message = "{}//:rendered.config does not have the values the tree's own `conf` writes".format(repo),
-        file1 = ":" + name + "_conf_values",
-        file2 = ":" + name + "_values",
+        failure_message = "{}//:rendered.config is not the `.config` the tree's own `conf` writes".format(repo),
+        file1 = ":" + name + "_conf_body",
+        file2 = repo + "//:rendered.config",
         **kwargs
     )

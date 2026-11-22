@@ -10,7 +10,8 @@ time a repository is generated with it.
 
 A source checkout carries no integrities and so no builds; the environment
 variables `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name them instead
-(see `parser_backend.bzl`).
+(see `parser_backend.bzl`). A build has the parsers of every kernel release
+`//kconfig/private:versions.bzl` lists.
 """
 
 load("//:version.bzl", "VERSION")
