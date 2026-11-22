@@ -1,0 +1,167 @@
+diff --git a/confdata.c b/confdata.c
+--- a/confdata.c
++++ b/confdata.c
+@@ -818,8 +818,6 @@
+ 	if (!out)
+ 		return 1;
+ 
+-	conf_write_heading(out, &kconfig_printer_cb, NULL);
+-
+ 	if (!conf_get_changed())
+ 		sym_clear_all_valid();
+ 
+diff --git a/preprocess.c b/preprocess.c
+--- a/preprocess.c
++++ b/preprocess.c
+@@ -14,7 +14,7 @@
+ 
+ static char *expand_string_with_args(const char *in, int argc, char *argv[]);
+ 
+-static void __attribute__((noreturn)) pperror(const char *format, ...)
++static void pperror(const char *format, ...)
+ {
+ 	va_list ap;
+ 
+@@ -24,7 +24,7 @@
+ 	va_end(ap);
+ 	fprintf(stderr, "\n");
+ 
+-	exit(1);
++	kconfig_host_fail();
+ }
+ 
+ /*
+@@ -206,13 +206,17 @@
+ 		if (strcmp(f->name, name))
+ 			continue;
+ 
+-		if (argc < f->min_args)
++		if (argc < f->min_args) {
+ 			pperror("too few function arguments passed to '%s'",
+ 				name);
++			return xstrdup("");
++		}
+ 
+-		if (argc > f->max_args)
++		if (argc > f->max_args) {
+ 			pperror("too many function arguments passed to '%s'",
+ 				name);
++			return xstrdup("");
++		}
+ 
+ 		return f->func(argc, argv);
+ 	}
+@@ -254,12 +258,16 @@
+ 	if (!v)
+ 		return NULL;
+ 
+-	if (argc == 0 && v->exp_count)
++	if (argc == 0 && v->exp_count) {
+ 		pperror("Recursive variable '%s' references itself (eventually)",
+ 			name);
++		return xstrdup("");
++	}
+ 
+-	if (v->exp_count > 1000)
++	if (v->exp_count > 1000) {
+ 		pperror("Too deep recursive expansion");
++		return xstrdup("");
++	}
+ 
+ 	v->exp_count++;
+ 
+@@ -381,8 +389,11 @@
+ 	while (*p) {
+ 		if (nest == 0 && *p == ',') {
+ 			*p = 0;
+-			if (new_argc >= FUNCTION_MAX_ARGS)
++			if (new_argc >= FUNCTION_MAX_ARGS) {
+ 				pperror("too many function arguments");
++				res = xstrdup("");
++				goto free_tmp;
++			}
+ 			new_argv[new_argc++] = prev;
+ 			prev = p + 1;
+ 		} else if (*p == '(') {
+@@ -475,8 +486,11 @@
+ 		q++;
+ 	}
+ 
+-	if (!*q)
++	if (!*q) {
+ 		pperror("unterminated reference to '%s': missing ')'", p);
++		*str = q;
++		return xstrdup("");
++	}
+ 
+ 	/* Advance 'str' to after the expanded initial portion of the string */
+ 	*str = q + 1;
+diff --git a/zconf.l b/zconf.l
+--- a/zconf.l
++++ b/zconf.l
+@@ -390,6 +390,8 @@
+ 	struct file *iter;
+ 	struct file *file = file_lookup(name);
+ 	struct buffer *buf = xmalloc(sizeof(*buf));
++	struct file *file_parent = file->parent;
++	FILE *buf_yyin = yyin;
+ 	memset(buf, 0, sizeof(*buf));
+ 
+ 	current_buf->state = YY_CURRENT_BUFFER;
+@@ -397,7 +399,10 @@
+ 	if (!yyin) {
+ 		fprintf(stderr, "%s:%d: can't open file \"%s\"\n",
+ 			zconf_curname(), zconf_lineno(), file->name);
+-		exit(1);
++		kconfig_host_fail();
++		free(buf);
++		yyin = buf_yyin;
++		return;
+ 	}
+ 	yy_switch_to_buffer(yy_create_buffer(yyin, YY_BUF_SIZE));
+ 	buf->parent = current_buf;
+@@ -418,7 +423,14 @@
+ 				fprintf(stderr, "  included from: %s:%d\n",
+ 					iter->name, iter->lineno - 1);
+ 			} while (strcmp(iter->name, file->name));
+-			exit(1);
++			kconfig_host_fail();
++			file->parent = file_parent;
++			fclose(yyin);
++			yy_delete_buffer(YY_CURRENT_BUFFER);
++			current_buf = buf->parent;
++			yy_switch_to_buffer(current_buf->state);
++			free(buf);
++			return;
+ 		}
+ 	}
+ 
+diff --git a/zconf.y b/zconf.y
+--- a/zconf.y
++++ b/zconf.y
+@@ -543,8 +543,10 @@
+ 	/* Variables are expanded in the parse phase. We can free them here. */
+ 	variable_all_del();
+ 
+-	if (yynerrs)
+-		exit(1);
++	if (yynerrs) {
++		kconfig_host_fail();
++		return;
++	}
+ 	if (!modules_sym)
+ 		modules_sym = sym_find( "n" );
+ 
+@@ -558,8 +560,10 @@
+ 		if (sym_check_deps(sym))
+ 			yynerrs++;
+ 	}
+-	if (yynerrs)
+-		exit(1);
++	if (yynerrs) {
++		kconfig_host_fail();
++		return;
++	}
+ 	sym_set_change_count(1);
+ }
+ 

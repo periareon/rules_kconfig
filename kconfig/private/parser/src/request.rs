@@ -51,6 +51,15 @@ pub struct Request {
     #[serde(default)]
     pub shell: Map<ByteBuf, Option<ShellResult>>,
 
+    /// The kernel release the consumer named (`kconfig_version`), recorded
+    /// in the manifest; the parser's own when absent.
+    #[serde(default)]
+    pub kconfig_version: Option<ByteBuf>,
+    /// The release of the parser Starlark chose for it, one of the parsers
+    /// linked in; the newest when absent.
+    #[serde(default)]
+    pub parser_version: Option<ByteBuf>,
+
     // `repository`
     #[serde(default)]
     pub repo_name: Option<ByteBuf>,

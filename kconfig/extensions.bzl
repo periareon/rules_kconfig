@@ -4,7 +4,22 @@ load("//kconfig:kconfig_overrides_repository.bzl", "kconfig_overrides_repository
 load("//kconfig:kconfig_repository.bzl", "kconfig_repository")
 load("//kconfig/private:kconfiglib.bzl", "kconfiglib_repository")
 load("//kconfig/private:parser_backend.bzl", "kconfig_parser_repository", "parser_location", "tool_filename")
-load("//kconfig/private/parser/kernel:repository.bzl", "kernel_kconfig_repository")
+load("//kconfig/private:versions.bzl", "DEFAULT_KCONFIG_VERSION", "PARSER_VERSIONS", "parser_version")
+load("//kconfig/private/parser/kernel:repository.bzl", "kernel_kconfig_repository", "kernel_kconfig_repository_name")
+
+_KCONFIG_VERSION_DOC = """\
+The kernel release the tree is written for: `{default}` (the default), `6.12.7`,
+`4.19`. Kconfig has no version of its own, so this is the release of the
+kernel tree, or the one a project's copy of `scripts/kconfig` was synced
+from (U-Boot: `4.19`). The tree is parsed and resolved as that release's
+`conf` would, by the newest parser rules_kconfig builds at or below the
+version ({parsers}); a version below the oldest is an error. The version is
+recorded in the manifest, and the overrides layered on the repository use
+the same.
+""".format(
+    default = DEFAULT_KCONFIG_VERSION,
+    parsers = ", ".join(["`{}`".format(v) for v in PARSER_VERSIONS]),
+)
 
 _LOAD = tag_class(
     doc = "Declare a kconfig repository to be generated from a Kconfig file tree.",
@@ -34,6 +49,10 @@ The label's path is the value, over `env`.
         "kconfig": attr.label(
             doc = "The root Kconfig file to parse. All files referenced via `source` directives are followed automatically.",
             mandatory = True,
+        ),
+        "kconfig_version": attr.string(
+            doc = _KCONFIG_VERSION_DOC,
+            default = DEFAULT_KCONFIG_VERSION,
         ),
         "name": attr.string(
             doc = "The name of the generated repository. Symbols are accessible as `@<name>//:CONFIG_<symbol>`.",
@@ -79,11 +98,13 @@ def _kconfig_impl(module_ctx):
         name = "kconfiglib",
     )
 
-    # The kernel's parser, for building the WebAssembly module; fetched only
-    # when it is.
-    kernel_kconfig_repository(
-        name = "kernel_kconfig",
-    )
+    # The kernel's parser of each release, for building the parser; fetched
+    # only when it is.
+    for version in PARSER_VERSIONS:
+        kernel_kconfig_repository(
+            name = kernel_kconfig_repository_name(version),
+            version = version,
+        )
 
     # The parser's builds of this release the host can use, or the ones
     # `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name; fetched only when a
@@ -112,6 +133,10 @@ def _kconfig_impl(module_ctx):
         for tag in getattr(module.tags, "repo", []):
             settings_labels = {v: str(k) for k, v in tag.settings_labels.items()}
 
+            # Checked here, so that a version this release has no parser for
+            # fails as the extension is evaluated.
+            parser_version(tag.kconfig_version, "kconfig.repo `{}`".format(tag.name))
+
             kconfig_repository(
                 name = tag.name,
                 apparent_name = tag.name,
@@ -119,6 +144,7 @@ def _kconfig_impl(module_ctx):
                 env = tag.env,
                 env_labels = tag.env_labels,
                 kconfig = tag.kconfig,
+                kconfig_version = tag.kconfig_version,
                 settings_labels = settings_labels,
                 settings_options = tag.settings_options,
                 tool = tool,

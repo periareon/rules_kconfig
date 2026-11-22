@@ -1,0 +1,11 @@
+{
+  "root": "Kconfig",
+  "files": [
+    "Kconfig"
+  ],
+  "kconfig_version": "6.12",
+  "parser_version": "6.12",
+  "settings_labels": {
+    "CONFIG_VERSION": "@//:version"
+  }
+}

@@ -80,7 +80,7 @@ python.toolchain(python_version = "3.14")
 use_repo(python, "python_3_14_host")
 
 kconfig = use_extension("//kconfig:extensions.bzl", "kconfig")
-use_repo(kconfig, "kconfiglib", "kernel_kconfig")
+use_repo(kconfig, "kconfiglib", "kernel_kconfig_4_19", "kernel_kconfig_6_12")
 
 register_toolchains(
     "//kconfig/toolchain:toolchain",

@@ -1,12 +1,12 @@
-//! The parsed tree, with the surface of kconfiglib's `Kconfig` and `Symbol`
-//! the generators read, over the kernel's parser (see shim.c).
+//! The parsed tree, the surface of the kernel's parser the generators read
+//! (see shim.c): the symbols, their values and where they are defined.
 
 use std::collections::BTreeSet;
 use std::ffi::{CString, c_char};
 
 use crate::ffi;
 
-/// kconfiglib's type constants.
+/// The type constants of shim.h.
 pub const UNKNOWN: i32 = 0;
 pub const BOOL: i32 = 1;
 pub const TRISTATE: i32 = 2;
@@ -47,10 +47,16 @@ fn owned(ptr: *const c_char) -> Vec<u8> {
 }
 
 impl Kconfig {
+    /// The kernel release of the parser selected for the call, `6.12`, as
+    /// `kconfig_version` names it.
+    pub fn kernel_version() -> Vec<u8> {
+        owned(ffi::shim().version)
+    }
+
     /// Parse the tree rooted at `filename`, through the session's host.
     pub fn parse(filename: &[u8]) -> Result<Kconfig, String> {
         let name = c_string(filename)?;
-        let status = unsafe { ffi::kconfig_shim_parse(name.as_ptr()) };
+        let status = unsafe { (ffi::shim().parse)(name.as_ptr()) };
         match status {
             0 => Ok(Kconfig { config_text: None }),
             1 => Err(format!(
@@ -68,24 +74,23 @@ impl Kconfig {
     /// What the parser printed to stderr.
     pub fn diagnostics() -> Vec<u8> {
         let mut len = 0usize;
-        let ptr = unsafe { ffi::kconfig_shim_diagnostics(&mut len) };
+        let ptr = unsafe { (ffi::shim().diagnostics)(&mut len) };
         unsafe { ffi::bytes_of_len(ptr, len) }
     }
 
-    /// The Kconfig files read, in order, as kconfiglib's `kconfig_filenames`.
+    /// The Kconfig files read, in order.
     pub fn kconfig_filenames(&self) -> Vec<Vec<u8>> {
         let mut count = 0usize;
-        let items = unsafe { ffi::kconfig_shim_filenames(&mut count) };
+        let items = unsafe { (ffi::shim().filenames)(&mut count) };
         (0..count)
             .map(|i| owned(unsafe { *items.add(i) }))
             .collect()
     }
 
-    /// Every named symbol once, in the order the menu tree defines them, as
-    /// kconfiglib's `unique_defined_syms`.
+    /// Every named symbol once, in the order the menu tree defines them.
     pub fn unique_defined_syms(&self) -> Vec<Symbol> {
         let mut count = 0usize;
-        let items = unsafe { ffi::kconfig_shim_menu_symbols(&mut count) };
+        let items = unsafe { (ffi::shim().menu_symbols)(&mut count) };
         let mut seen = BTreeSet::new();
         let mut symbols = Vec::new();
         for i in 0..count {
@@ -112,7 +117,7 @@ impl Kconfig {
             _ => text,
         };
         let failed =
-            unsafe { ffi::kconfig_shim_load_config(text.as_ptr() as *const c_char, text.len()) }
+            unsafe { (ffi::shim().load_config)(text.as_ptr() as *const c_char, text.len()) }
                 != 0;
         self.config_text = Some(text);
         if failed {
@@ -121,11 +126,10 @@ impl Kconfig {
         Ok(())
     }
 
-    /// The `.config` the kernel writes, after `header`, as kconfiglib's
-    /// `_config_contents`.
+    /// The `.config` the kernel writes, after `header`.
     pub fn config_contents(&self, header: &[u8]) -> Result<Vec<u8>, String> {
         let mut len = 0usize;
-        let ptr = unsafe { ffi::kconfig_shim_config_contents(&mut len) };
+        let ptr = unsafe { (ffi::shim().config_contents)(&mut len) };
         if ptr.is_null() {
             return Err("the parser could not write the configuration".to_string());
         }
@@ -138,50 +142,50 @@ impl Kconfig {
 impl Symbol {
     /// The name, without `CONFIG_`.
     pub fn name(&self) -> Vec<u8> {
-        owned(unsafe { ffi::kconfig_shim_symbol_name(self.ptr) })
+        owned(unsafe { (ffi::shim().symbol_name)(self.ptr) })
     }
 
     /// The type as declared: one of the constants above.
     pub fn orig_type(&self) -> i32 {
-        unsafe { ffi::kconfig_shim_symbol_type(self.ptr) }
+        unsafe { (ffi::shim().symbol_type)(self.ptr) }
     }
 
     /// The value as a string, calculated.
     pub fn str_value(&self) -> Vec<u8> {
-        owned(unsafe { ffi::kconfig_shim_symbol_str_value(self.ptr) })
+        owned(unsafe { (ffi::shim().symbol_str_value)(self.ptr) })
     }
 
     /// The value a `.config` gave, or None.
     pub fn user_value(&self) -> Option<UserValue> {
-        if unsafe { ffi::kconfig_shim_symbol_has_user_value(self.ptr) } == 0 {
+        if unsafe { (ffi::shim().symbol_has_user_value)(self.ptr) } == 0 {
             return None;
         }
         if matches!(self.orig_type(), BOOL | TRISTATE) {
             return Some(UserValue::Tri(unsafe {
-                ffi::kconfig_shim_symbol_user_tri(self.ptr)
+                (ffi::shim().symbol_user_tri)(self.ptr)
             }));
         }
         Some(UserValue::Str(owned(unsafe {
-            ffi::kconfig_shim_symbol_user_str(self.ptr)
+            (ffi::shim().symbol_user_str)(self.ptr)
         })))
     }
 
     /// Whether a `.config` can set the symbol: it has a prompt whose
-    /// condition holds, kconfiglib's `visibility`.
+    /// condition holds.
     pub fn visible(&self) -> bool {
-        unsafe { ffi::kconfig_shim_symbol_visible(self.ptr) != 0 }
+        unsafe { (ffi::shim().symbol_visible)(self.ptr) != 0 }
     }
 
     /// The menu nodes defining the symbol.
     pub fn nodes(&self) -> Vec<Node> {
         let mut count = 0usize;
-        let items = unsafe { ffi::kconfig_shim_symbol_nodes(self.ptr, &mut count) };
+        let items = unsafe { (ffi::shim().symbol_nodes)(self.ptr, &mut count) };
         let nodes = (0..count)
             .map(|i| {
                 let menu = unsafe { *items.add(i) };
                 Node {
-                    filename: owned(unsafe { ffi::kconfig_shim_menu_filename(menu) }),
-                    linenr: unsafe { ffi::kconfig_shim_menu_lineno(menu) },
+                    filename: owned(unsafe { (ffi::shim().menu_filename)(menu) }),
+                    linenr: unsafe { (ffi::shim().menu_lineno)(menu) },
                 }
             })
             .collect();

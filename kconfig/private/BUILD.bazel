@@ -21,6 +21,13 @@ bzl_library(
     srcs = ["@bazel_tools//tools:bzl_srcs"],
 )
 
+# The versions table on its own, for the packages under this one.
+bzl_library(
+    name = "versions_bzl_lib",
+    srcs = ["versions.bzl"],
+    visibility = ["//kconfig:__subpackages__"],
+)
+
 bzl_library(
     name = "bzl_lib",
     srcs = glob(["*.bzl"]),

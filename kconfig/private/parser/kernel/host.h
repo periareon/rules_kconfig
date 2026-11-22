@@ -64,13 +64,12 @@ typedef int pid_t;
         }                                                                      \
     } while (0)
 
-struct symbol;
-
 /* Files and streams. A `FILE *` from these is the shim's stream, which only
  * these functions understand; `stderr` and `stdout` are the diagnostics. */
 FILE* kconfig_host_fopen(const char* path, const char* mode);
 int kconfig_host_fclose(FILE* stream);
 size_t kconfig_host_fread(void* ptr, size_t size, size_t nmemb, FILE* stream);
+int kconfig_host_fgetc(FILE* stream);
 ssize_t kconfig_host_getline(char** lineptr, size_t* n, FILE* stream);
 size_t kconfig_host_fwrite(const void* ptr, size_t size, size_t nmemb,
                            FILE* stream);
@@ -99,15 +98,9 @@ int kconfig_host_munmap(void* addr, size_t length);
 void kconfig_host_exit(int code) __attribute__((noreturn));
 char* kconfig_host_strndup(const char* s, size_t n);
 
-/* The patch to the parser (kconfiglib_dialect.patch) calls these where the
- * kernel's would exit, or decide alone. */
+/* The host patch of the parser (host_<version>.patch) calls this where the
+ * kernel's would exit: the parse has failed, with the message on stderr. */
 void kconfig_host_fail(void);
-bool kconfig_host_should_write(struct symbol* sym);
-const char* kconfig_host_string_value(struct symbol* sym);
-/* An `option` of a symbol, `name` or `name=value`, as kconfiglib takes it;
- * NULL, or the message of the error it is. */
-const char* kconfig_host_option(struct symbol* sym, const char* name,
-                                const char* value);
 
 /* The renames, for the parser's sources; the shim defines
  * KCONFIG_HOST_IMPLEMENTATION and keeps the libc's names. `struct stat` is
@@ -116,6 +109,8 @@ const char* kconfig_host_option(struct symbol* sym, const char* name,
 #undef fopen
 #undef fclose
 #undef fread
+#undef fgetc
+#undef getc
 #undef getline
 #undef fwrite
 #undef fputs
@@ -143,6 +138,9 @@ const char* kconfig_host_option(struct symbol* sym, const char* name,
 #define fopen kconfig_host_fopen
 #define fclose kconfig_host_fclose
 #define fread kconfig_host_fread
+/* The kernels before 5.x read a `.config` with `getc`. */
+#define fgetc kconfig_host_fgetc
+#define getc kconfig_host_fgetc
 #define getline kconfig_host_getline
 #define fwrite kconfig_host_fwrite
 #define fputs kconfig_host_fputs

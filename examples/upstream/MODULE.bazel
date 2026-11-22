@@ -106,22 +106,27 @@ kconfig.repo(
 )
 
 # U-Boot: two boards' defconfigs as the tree carries them, and `alldefconfig`.
+# U-Boot's `scripts/kconfig` is the kernel's of 4.19 (its tree still has
+# `---help---` and `optional` choices), so that is the version named.
 kconfig.repo(
     name = "u_boot_qemu_arm64",
     defaults = "@u_boot//:configs/qemu_arm64_defconfig",
     env = U_BOOT_ENV,
     kconfig = "@u_boot//:Kconfig",
+    kconfig_version = "4.19",
 )
 kconfig.repo(
     name = "u_boot_qemu_x86_64",
     defaults = "@u_boot//:configs/qemu-x86_64_defconfig",
     env = U_BOOT_ENV,
     kconfig = "@u_boot//:Kconfig",
+    kconfig_version = "4.19",
 )
 kconfig.repo(
     name = "u_boot_alldefconfig",
     env = U_BOOT_ENV,
     kconfig = "@u_boot//:Kconfig",
+    kconfig_version = "4.19",
 )
 use_repo(
     kconfig,

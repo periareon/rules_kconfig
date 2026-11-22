@@ -1,6 +1,10 @@
-/* The C side of the module: the kernel's parser behind the functions of
- * shim.h, and the host functions its libc calls are renamed to (see host.h
- * and the BUILD file of the `kernel_kconfig` repository), served from Rust.
+/* The C side of the module: the kernel's parser of one release behind the
+ * entry points of shim.h, and the host functions its libc calls are renamed
+ * to (see host.h and the BUILD file of the `kernel_kconfig_<id>` repository),
+ * served from Rust. The parsers of every release link into one program: this
+ * file and the kernel's sources are compiled once per release, with the
+ * release's prefix header (kernel/prefix_<id>.h) renaming every exported
+ * name, and parsers.c lists the releases' tables for the Rust side.
  *
  * Files the parser opens come from Rust as bytes and are read as in-memory
  * streams; what it writes, the `.config` of `kconfig_shim_config_contents`,
@@ -8,11 +12,12 @@
  * message a failed parse ends in. The patched exit sites report through
  * `kconfig_host_fail` rather than ending the process.
  *
- * Where kconfiglib and the kernel differ, the answers here are kconfiglib's,
- * so that the module generates the repository the Python backend generates:
- * an int or hex symbol with nothing to set it is "" rather than "0" or
- * "0x0", and a symbol `imply` reaches while its own dependencies are not met
- * is left out of the `.config`. */
+ * The values are the kernel's at the release the parser was built from
+ * (RULES_KCONFIG_KERNEL_MAJOR and _MINOR, from the BUILD file of the
+ * `kernel_kconfig_<version>` repository); nothing here decides a value. The
+ * internals the shim reads changed between the releases: before 5.x a menu
+ * node knows its `struct file` and a symbol's nodes are its P_SYMBOL
+ * properties; later a node has a `filename` and a symbol a list of menus. */
 /* wasi-libc declares `mmap` only as emulated, and the parser's stub is its
  * stand-in. The shim keeps the libc's names: host.h renames them for the
  * parser's sources only. */
@@ -35,7 +40,14 @@
 #include "list.h"
 #include "lkc.h"
 
-/* kconfiglib's type constants. */
+#if RULES_KCONFIG_KERNEL_MAJOR < 5
+#define KCONFIG_LEGACY_MENUS 1
+#endif
+
+#define KCONFIG_STRINGIFY_(x) #x
+#define KCONFIG_STRINGIFY(x) KCONFIG_STRINGIFY_(x)
+
+/* The type constants of shim.h. */
 enum {
     KL_UNKNOWN = 0,
     KL_BOOL = 1,
@@ -241,6 +253,17 @@ size_t kconfig_host_fread(void* ptr, size_t size, size_t nmemb, FILE* f) {
     return take / size;
 }
 
+int kconfig_host_fgetc(FILE* f) {
+    if (is_console(f)) {
+        return EOF;
+    }
+    struct stream* s = as_stream(f);
+    if (s->data == NULL || s->pos >= s->len) {
+        return EOF;
+    }
+    return (unsigned char)s->data[s->pos++];
+}
+
 ssize_t kconfig_host_getline(char** lineptr, size_t* n, FILE* f) {
     if (is_console(f)) {
         return -1;
@@ -340,10 +363,9 @@ char* kconfig_host_strndup(const char* s, size_t n) {
 /* -- The host ---------------------------------------------------------------
  */
 
-/* `\r\n` read as `\n`: kconfiglib opened Kconfig files and `.config`s as
- * text, with universal newlines, so a tree checked out with CRLF line endings
- * (Windows) parses the same; the kernel's lexer would keep the `\r` in a
- * variable's value (`VERSION := $(shell,...)`). */
+/* `\r\n` read as `\n`, so that a tree checked out with CRLF line endings
+ * (Windows) parses as the same tree with LF; the kernel's lexer would keep
+ * the `\r` in a variable's value (`VERSION := $(shell,...)`). */
 static size_t strip_carriage_returns(char* data, size_t len) {
     size_t out = 0;
     for (size_t i = 0; i < len; i++) {
@@ -381,8 +403,7 @@ FILE* kconfig_host_fopen(const char* path, const char* mode) {
         return NULL;
     }
     if (g_parsing) {
-        /* As kconfiglib lists them: relative to `srctree`, where the parser
-         * found the file under it. */
+        /* Relative to `srctree`, where the parser found the file under it. */
         const char* srctree = kconfig_host_getenv("srctree");
         size_t prefix = srctree != NULL ? strlen(srctree) : 0;
         const char* listed = path;
@@ -414,10 +435,10 @@ char* kconfig_host_getenv(const char* name) {
     if (strcmp(name, "KCONFIG_OVERWRITECONFIG") == 0) {
         return "1";
     }
-    /* The kernel's own knobs, which kconfiglib had no counterpart to: the
-     * lexer's debug output, and warnings (or errors, with KCONFIG_WERROR) for
-     * symbols a `.config` names that the tree does not. kconfiglib ignored
-     * such symbols; so does the module, whatever the host's environment. */
+    /* The kernel's own knobs: the lexer's debug output, and warnings (or
+     * errors, with KCONFIG_WERROR) for symbols a `.config` names that the
+     * tree does not. The repository is generated the same whatever the
+     * host's environment, so neither is read from it. */
     if (strcmp(name, "ZCONF_DEBUG") == 0 ||
         strcmp(name, "KCONFIG_WARN_UNKNOWN_SYMBOLS") == 0 ||
         strcmp(name, "KCONFIG_WERROR") == 0) {
@@ -474,36 +495,6 @@ void kconfig_host_fail(void) { g_failed = 1; }
 void kconfig_host_exit(int code) {
     (void)code;
     __builtin_trap();
-}
-
-/* The first default whose condition holds, as `sym_get_default_prop` finds
- * it. */
-static struct property* active_default(struct symbol* sym) {
-    struct property* prop;
-    for_all_defaults(sym, prop) {
-        if (prop->visible.tri != no) {
-            return prop;
-        }
-    }
-    return NULL;
-}
-
-/* Whether `conf_write` writes the symbol, after `sym_calc_value`: the
- * kernel's `SYMBOL_WRITE`, except that an `imply` only counts when the
- * symbol's own dependencies are met, as kconfiglib has it. */
-bool kconfig_host_should_write(struct symbol* sym) {
-    if (!(sym->flags & SYMBOL_WRITE)) {
-        return false;
-    }
-    if ((sym_get_type(sym) != S_BOOLEAN && sym_get_type(sym) != S_TRISTATE) ||
-        sym_is_choice_value(sym) || sym->visible != no ||
-        sym->rev_dep.tri != no ||
-        (sym->implied.tri != no && sym->dir_dep.tri != no)) {
-        return true;
-    }
-    struct property* prop = active_default(sym);
-    return prop != NULL &&
-           EXPR_AND(expr_calc_value(prop->expr), prop->visible.tri) != no;
 }
 
 int kconfig_host_stat(const char* path, struct stat* buf) {
@@ -574,129 +565,6 @@ int kconfig_host_munmap(void* addr, size_t length) {
     return 0;
 }
 
-/* kconfiglib's `defconfig_list` symbol: the first so marked. */
-static struct symbol* g_defconfig_list;
-
-/* `option name[=value]`, which kconfiglib accepts and later kernels dropped,
- * answered as kconfiglib answers it: `modules` names the modules symbol;
- * `env=NAME` gives the symbol the variable's value as a default when it is
- * set, and keeps the symbol out of the `.config`, as does `defconfig_list`
- * for the first symbol it is set on; `allnoconfig_y` changes nothing that is
- * generated. */
-const char* kconfig_host_option(struct symbol* sym, const char* name,
-                                const char* value) {
-    if (strcmp(name, "modules") == 0) {
-        if (modules_sym == NULL) {
-            modules_sym = sym;
-        }
-    } else if (strcmp(name, "env") == 0) {
-        if (value == NULL) {
-            return "expected '=' after 'env'";
-        }
-        const char* env = kconfig_host_getenv(value);
-        if (env != NULL) {
-            menu_add_expr(P_DEFAULT,
-                          expr_alloc_symbol(sym_lookup(env, SYMBOL_CONST)),
-                          NULL);
-        }
-        sym->flags |= SYMBOL_NO_WRITE;
-    } else if (strcmp(name, "defconfig_list") == 0) {
-        if (g_defconfig_list == NULL) {
-            g_defconfig_list = sym;
-            sym->flags |= SYMBOL_NO_WRITE;
-        }
-    } else if (strcmp(name, "allnoconfig_y") != 0) {
-        static char message[128];
-        snprintf(message, sizeof(message), "unrecognized option '%.64s'", name);
-        return message;
-    }
-    return NULL;
-}
-
-/* -- Values as kconfiglib has them ------------------------------------------
- */
-
-/* `strtoll` of a whole string, in the base, as kconfiglib takes a range
- * bound; 0 for anything else. */
-static long long number(const char* text, int base) {
-    if (text == NULL) {
-        return 0;
-    }
-    char* end;
-    long long value = strtoll(text, &end, base);
-    return *text != 0 && *end == 0 ? value : 0;
-}
-
-static const char* int_hex_value(struct symbol* sym, int depth);
-
-/* A bound of a range as kconfiglib reads it: the bound symbol's `str_value`.
- * The kernel calculates a bound only as it compares the value against it
- * (`sym_validate_range` stops at the lower bound when the value is below
- * it, as with `range 5 15` and no default), so the bound is calculated here
- * before it is read. */
-static const char* bound_value(struct symbol* bound, int depth) {
-    if (!(bound->flags & SYMBOL_CONST) &&
-        (bound->type == S_INT || bound->type == S_HEX) && depth < 64) {
-        return int_hex_value(bound, depth + 1);
-    }
-    sym_calc_value(bound);
-    return sym_get_string_value(bound);
-}
-
-/* kconfiglib's value of an int or hex symbol with neither a user value nor
- * an active default: "", or the bound of an active range 0 falls outside of.
- * The kernel has "0" or "0x0" there. */
-static const char* int_hex_without_value(struct symbol* sym, int depth) {
-    struct property* range = sym_get_range_prop(sym);
-    if (range == NULL) {
-        return "";
-    }
-    int base = sym->type == S_HEX ? 16 : 10;
-    long long low = number(bound_value(range->expr->left.sym, depth), base);
-    long long high = number(bound_value(range->expr->right.sym, depth), base);
-    long long clamp = low > 0 ? low : high < 0 ? high : 0;
-    if (clamp == 0) {
-        return "";
-    }
-    static char text[32];
-    if (base == 16) {
-        snprintf(text, sizeof(text), "%s0x%llx", clamp < 0 ? "-" : "",
-                 clamp < 0 ? -clamp : clamp);
-    } else {
-        snprintf(text, sizeof(text), "%lld", clamp);
-    }
-    return text;
-}
-
-/* kconfiglib's value of an int or hex symbol: the kernel's, except where
- * nothing sets it (see `int_hex_without_value`), also through a default that
- * names another int or hex symbol, whose kconfiglib value it then is. */
-static const char* int_hex_value(struct symbol* sym, int depth) {
-    sym_calc_value(sym);
-    if (sym->visible != no && sym_has_value(sym)) {
-        return sym_get_string_value(sym);
-    }
-    struct property* prop = active_default(sym);
-    if (prop == NULL) {
-        return int_hex_without_value(sym, depth);
-    }
-    struct symbol* named =
-        prop->expr->type == E_SYMBOL ? prop->expr->left.sym : NULL;
-    if (named != NULL && !(named->flags & SYMBOL_CONST) &&
-        (named->type == S_INT || named->type == S_HEX) && depth < 64) {
-        return int_hex_value(named, depth + 1);
-    }
-    return sym_get_string_value(sym);
-}
-
-/* `str_value`, which `conf_write` writes as well. */
-const char* kconfig_host_string_value(struct symbol* sym) {
-    if (sym->type == S_INT || sym->type == S_HEX) {
-        return int_hex_value(sym, 0);
-    }
-    return sym_get_string_value(sym);
-}
-
 /* -- The parser -------------------------------------------------------------
  */
 
@@ -710,28 +578,14 @@ static struct menu* next_menu(struct menu* menu) {
     return menu == &rootmenu ? NULL : menu->next;
 }
 
-/* kconfiglib gives a choice symbol declared without a type the choice's; the
- * kernel leaves it unknown, with a warning. */
-static void type_choice_symbols(void) {
-    for (struct menu* menu = rootmenu.list; menu != NULL;
-         menu = next_menu(menu)) {
-        struct symbol* sym = menu->sym;
-        struct symbol* choice = menu->parent != NULL ? menu->parent->sym : NULL;
-        if (sym != NULL && sym->type == S_UNKNOWN && choice != NULL &&
-            sym_is_choice(choice) && choice->type != S_UNKNOWN) {
-            sym->type = choice->type;
-        }
-    }
-}
-
-int kconfig_shim_parse(const char* filename) {
+static int kconfig_shim_parse(const char* filename) {
     if (g_parsed) {
         return 3;
     }
     g_parsed = 1;
     /* `conf_write` would print "configuration written to" on stdout. */
     conf_set_message_callback(NULL);
-    /* kconfiglib raises for a root file it cannot open; the parser exits. */
+    /* The parser exits for a root file it cannot open; it is ruled out here. */
     FILE* root = kconfig_host_fopen(filename, "r");
     if (root == NULL) {
         return 1;
@@ -743,28 +597,27 @@ int kconfig_shim_parse(const char* filename) {
     if (g_failed) {
         return 2;
     }
-    type_choice_symbols();
     sym_clear_all_valid();
     return 0;
 }
 
-const char* kconfig_shim_diagnostics(size_t* len) {
+static const char* kconfig_shim_diagnostics(size_t* len) {
     struct memfile* f = memfile_find(STDERR_NAME);
     *len = f ? f->len : 0;
     return f && f->data ? f->data : "";
 }
 
-const char* const* kconfig_shim_filenames(size_t* count) {
+static const char* const* kconfig_shim_filenames(size_t* count) {
     *count = g_filenames.len;
     return (const char* const*)g_filenames.items;
 }
 
-int kconfig_shim_load_config(const char* text, size_t len) {
+static int kconfig_shim_load_config(const char* text, size_t len) {
     memfile_set(memfile_create(CONFIG_NAME), text, len);
     return conf_read(CONFIG_NAME);
 }
 
-const char* kconfig_shim_config_contents(size_t* len) {
+static const char* kconfig_shim_config_contents(size_t* len) {
     if (conf_write(OUTPUT_NAME) != 0) {
         return NULL;
     }
@@ -773,14 +626,14 @@ const char* kconfig_shim_config_contents(size_t* len) {
     return f && f->data ? f->data : "";
 }
 
-struct symbol** kconfig_shim_menu_symbols(size_t* count) {
+static struct symbol** kconfig_shim_menu_symbols(size_t* count) {
     size_t cap = 256;
     size_t len = 0;
     struct symbol** syms = malloc(cap * sizeof(*syms));
     for (struct menu* menu = rootmenu.list; menu != NULL;
          menu = next_menu(menu)) {
         struct symbol* sym = menu->sym;
-        /* Choices are not symbols to kconfiglib, named or not. */
+        /* A choice is not a symbol of the repository, named or not. */
         if (sym == NULL || sym->name == NULL || sym_is_choice(sym)) {
             continue;
         }
@@ -794,11 +647,11 @@ struct symbol** kconfig_shim_menu_symbols(size_t* count) {
     return syms;
 }
 
-const char* kconfig_shim_symbol_name(struct symbol* sym) {
+static const char* kconfig_shim_symbol_name(struct symbol* sym) {
     return sym->name ? sym->name : "";
 }
 
-int kconfig_shim_symbol_type(struct symbol* sym) {
+static int kconfig_shim_symbol_type(struct symbol* sym) {
     switch (sym->type) {
         case S_BOOLEAN:
             return KL_BOOL;
@@ -815,47 +668,89 @@ int kconfig_shim_symbol_type(struct symbol* sym) {
     }
 }
 
-const char* kconfig_shim_symbol_str_value(struct symbol* sym) {
+static const char* kconfig_shim_symbol_str_value(struct symbol* sym) {
     sym_calc_value(sym);
-    return kconfig_host_string_value(sym);
+    return sym_get_string_value(sym);
 }
 
-int kconfig_shim_symbol_has_user_value(struct symbol* sym) {
+static int kconfig_shim_symbol_has_user_value(struct symbol* sym) {
     return sym_has_value(sym);
 }
 
-int kconfig_shim_symbol_visible(struct symbol* sym) {
+static int kconfig_shim_symbol_visible(struct symbol* sym) {
     sym_calc_value(sym);
     return sym->visible != no;
 }
 
-int kconfig_shim_symbol_user_tri(struct symbol* sym) {
+static int kconfig_shim_symbol_user_tri(struct symbol* sym) {
     return (int)sym->def[S_DEF_USER].tri;
 }
 
-const char* kconfig_shim_symbol_user_str(struct symbol* sym) {
+static const char* kconfig_shim_symbol_user_str(struct symbol* sym) {
     const char* val = sym->def[S_DEF_USER].val;
     return val ? val : "";
 }
 
-struct menu** kconfig_shim_symbol_nodes(struct symbol* sym, size_t* count) {
+static struct menu** push_node(struct menu** nodes, size_t* len, size_t* cap,
+                               struct menu* menu) {
+    if (*len == *cap) {
+        *cap *= 2;
+        nodes = realloc(nodes, *cap * sizeof(*nodes));
+    }
+    nodes[(*len)++] = menu;
+    return nodes;
+}
+
+static struct menu** kconfig_shim_symbol_nodes(struct symbol* sym,
+                                               size_t* count) {
     size_t cap = 4;
     size_t len = 0;
     struct menu** nodes = malloc(cap * sizeof(*nodes));
+#ifdef KCONFIG_LEGACY_MENUS
+    struct property* prop;
+    for_all_properties(sym, prop, P_SYMBOL) {
+        nodes = push_node(nodes, &len, &cap, prop->menu);
+    }
+#else
     struct menu* menu;
     list_for_each_entry(menu, &sym->menus, link) {
-        if (len == cap) {
-            cap *= 2;
-            nodes = realloc(nodes, cap * sizeof(*nodes));
-        }
-        nodes[len++] = menu;
+        nodes = push_node(nodes, &len, &cap, menu);
     }
+#endif
     *count = len;
     return nodes;
 }
 
-const char* kconfig_shim_menu_filename(struct menu* menu) {
+static const char* kconfig_shim_menu_filename(struct menu* menu) {
+#ifdef KCONFIG_LEGACY_MENUS
+    return menu->file && menu->file->name ? menu->file->name : "";
+#else
     return menu->filename ? menu->filename : "";
+#endif
 }
 
-int kconfig_shim_menu_lineno(struct menu* menu) { return menu->lineno; }
+static int kconfig_shim_menu_lineno(struct menu* menu) { return menu->lineno; }
+
+/* The entry points, as the Rust side reaches them (shim.h); under the prefix
+ * of the release (kernel/prefix_<id>.h), and listed by parsers.c. */
+const struct kconfig_shim kconfig_shim_vtable = {
+    .version =
+        KCONFIG_STRINGIFY(RULES_KCONFIG_KERNEL_MAJOR) "." KCONFIG_STRINGIFY(
+            RULES_KCONFIG_KERNEL_MINOR),
+    .parse = kconfig_shim_parse,
+    .diagnostics = kconfig_shim_diagnostics,
+    .filenames = kconfig_shim_filenames,
+    .load_config = kconfig_shim_load_config,
+    .config_contents = kconfig_shim_config_contents,
+    .menu_symbols = kconfig_shim_menu_symbols,
+    .symbol_name = kconfig_shim_symbol_name,
+    .symbol_type = kconfig_shim_symbol_type,
+    .symbol_str_value = kconfig_shim_symbol_str_value,
+    .symbol_has_user_value = kconfig_shim_symbol_has_user_value,
+    .symbol_visible = kconfig_shim_symbol_visible,
+    .symbol_user_tri = kconfig_shim_symbol_user_tri,
+    .symbol_user_str = kconfig_shim_symbol_user_str,
+    .symbol_nodes = kconfig_shim_symbol_nodes,
+    .menu_filename = kconfig_shim_menu_filename,
+    .menu_lineno = kconfig_shim_menu_lineno,
+};

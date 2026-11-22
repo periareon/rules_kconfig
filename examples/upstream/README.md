@@ -2,12 +2,14 @@
 
 The Kconfig trees of Linux 6.12 and U-Boot v2025.10, fetched at those
 releases, as regression tests of the parser against the trees it is meant
-for. For each case a repository is generated with `kconfig.repo`, and the
+for. For each case a repository is generated with `kconfig.repo`, with the
+parser of the tree's `kconfig_version` (Linux the default `6.12`; U-Boot
+`4.19`, the kernel release its `scripts/kconfig` is a copy of), and the
 tree's own `scripts/kconfig/conf`, built from the tree with the `bison` and
 `flex` modules, writes the `.config` of `make <defconfig>` or
-`make alldefconfig` with the same variables; a `diff_test` compares the
-`CONFIG_<name>=<value>` lines of the two (see `defs.bzl` for what is left
-out and why). A `cc_test` per board includes the generated `config.h`.
+`make alldefconfig` with the same variables; a `diff_test` compares the two
+whole, but for the heading `conf` writes (see `defs.bzl`). A `cc_test` per
+board includes the generated `config.h`.
 
 | Case | Repository | Compared with |
 | --- | --- | --- |
@@ -64,15 +66,16 @@ trees' shell scripts.
 ## Known difference: U-Boot's `.config` strings
 
 U-Boot's kconfig reads and writes string values verbatim, while the kernel's
-(and kconfiglib) unescape them when reading and escape `"` and `\` when
-writing. A `.config` line such as
+unescapes them when reading and escapes `"` and `\` when writing. A
+`.config` line such as
 
 ```text
 CONFIG_AUTOBOOT_PROMPT="Enter password \"a\" in %d seconds to stop autoboot\n"
 ```
 
 keeps its `\n` through U-Boot's `conf` and loses the backslash through the
-parser here, which follows the kernel. `sandbox_defconfig` has such a line
-and is not among the cases for that reason; 97 of the 1477 defconfigs of
-v2025.10 have one, nearly all `CONFIG_AUTOBOOT_PROMPT` or
+parser here, which is the kernel's of 4.19 as released; the verbatim strings
+are U-Boot's own change to its copy of `confdata.c`. `sandbox_defconfig` has
+such a line and is not among the cases for that reason; 97 of the 1477
+defconfigs of v2025.10 have one, nearly all `CONFIG_AUTOBOOT_PROMPT` or
 `CONFIG_IDENT_STRING`.

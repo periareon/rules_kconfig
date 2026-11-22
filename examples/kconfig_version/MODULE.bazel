@@ -1,0 +1,27 @@
+"""Example: a Kconfig tree written for an older kernel's parser, named with `kconfig_version`."""
+
+module(
+    name = "rules_kconfig_example_kconfig_version",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_kconfig", version = "0.0.1")
+bazel_dep(name = "rules_cc", version = "0.2.4")
+
+local_path_override(
+    module_name = "rules_kconfig",
+    path = "../..",
+)
+
+kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
+
+# The tree uses `---help---`, an `optional` choice and `option modules`, which
+# the kernel's parser dropped in 6.10 and earlier; U-Boot's trees are written
+# this way, as its `scripts/kconfig` is the kernel's of 4.19. Naming that
+# release parses and resolves the tree as that release's `conf` would.
+kconfig.repo(
+    name = "legacy_kconfig",
+    kconfig = "//:Kconfig",
+    kconfig_version = "4.19",
+)
+use_repo(kconfig, "legacy_kconfig")

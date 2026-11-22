@@ -35,6 +35,8 @@
 //!   "files": {path: {"exists": bool, "is_dir": bool, "content": str | null}},
 //!   "dirs": {path: [[name, is_dir], ...] | null},
 //!   "shell": {command: {"stdout": str, "stderr": str, "return_code": int}},
+//!   "kconfig_version": str,               # the kernel release the consumer named
+//!   "parser_version": str,                # the release whose parser to use
 //!   # "repository":
 //!   "repo_name": str, "defaults": path | null, "config_ws_path": str | null,
 //!   "settings_labels": {name: label}, "settings_options": {name: [value]},
@@ -52,9 +54,10 @@
 //! {"status": "error", "message": str}
 //! ```
 //!
-//! The parser is the Linux kernel's (`scripts/kconfig`, see
-//! `kconfig/private/parser/kernel`), behind shim.c; the same crate builds
-//! natively, where its tests run it against the Python backend.
+//! The parsers are the Linux kernel's (`scripts/kconfig`, see
+//! `kconfig/private/parser/kernel`) of the releases
+//! `//kconfig/private:versions.bzl` lists, each behind its own copy of
+//! shim.c and all linked into the one program (see ffi.rs).
 
 pub mod entry;
 pub mod ffi;

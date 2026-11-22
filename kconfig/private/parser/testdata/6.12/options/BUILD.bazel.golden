@@ -1,0 +1,198 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag", "string_flag")
+exports_files(glob(["kconfig_srcs/**"]) + ["test_kconfig", "kconfig.manifest.json", "rendered.config"])
+bool_flag(
+    name = "CONFIG_FOO",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+int_flag(
+    name = "CONFIG_COUNT",
+    build_setting_default = 3,
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_LABEL",
+    build_setting_default = "héllo",
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_ADDR",
+    build_setting_default = "0x1000",
+    visibility = ["//visibility:public"],
+)
+bool_flag(
+    name = "CONFIG_MODULES",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_DRIVER_A",
+    build_setting_default = "y",
+    visibility = ["//visibility:public"],
+)
+bool_flag(
+    name = "CONFIG_DRIVER_B",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+int_flag(
+    name = "CONFIG_DRIVER_B_RANGE",
+    build_setting_default = 0,
+    visibility = ["//visibility:public"],
+)
+int_flag(
+    name = "CONFIG_EXTRA",
+    build_setting_default = 7,
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_QUOTED",
+    build_setting_default = "with \"quotes\" and \\ backslash",
+    visibility = ["//visibility:public"],
+)
+string_flag(
+    name = "CONFIG_TAINTED",
+    build_setting_default = "",
+    visibility = ["//visibility:public"],
+)
+int_flag(
+    name = "CONFIG_INDIRECT",
+    build_setting_default = 0,
+    visibility = ["//visibility:public"],
+)
+bool_flag(
+    name = "CONFIG_PICK_A",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+bool_flag(
+    name = "CONFIG_PICK_B",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig/private:kconfig_autoconf.bzl", "kconfig_autoconf")
+load("@rules_kconfig//kconfig/private:kconfig_savedefconfig.bzl", "kconfig_savedefconfig")
+load("@rules_kconfig//kconfig/private:kconfig_settings_group.bzl", "kconfig_settings_group")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+
+kconfig_settings_group(
+    name = "settings",
+    settings = [
+        ":CONFIG_FOO",
+        ":CONFIG_COUNT",
+        ":CONFIG_LABEL",
+        ":CONFIG_ADDR",
+        ":CONFIG_MODULES",
+        ":CONFIG_DRIVER_A",
+        ":CONFIG_DRIVER_B",
+        ":CONFIG_DRIVER_B_RANGE",
+        ":CONFIG_EXTRA",
+        ":CONFIG_QUOTED",
+        ":CONFIG_TAINTED",
+        ":CONFIG_INDIRECT",
+        ":CONFIG_PICK_A",
+        ":CONFIG_PICK_B",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_autoconf(
+    name = "autoconf",
+    settings = [
+        ":CONFIG_FOO",
+        ":CONFIG_COUNT",
+        ":CONFIG_LABEL",
+        ":CONFIG_ADDR",
+        ":CONFIG_MODULES",
+        ":CONFIG_DRIVER_A",
+        ":CONFIG_DRIVER_B",
+        ":CONFIG_DRIVER_B_RANGE",
+        ":CONFIG_EXTRA",
+        ":CONFIG_QUOTED",
+        ":CONFIG_TAINTED",
+        ":CONFIG_INDIRECT",
+        ":CONFIG_PICK_A",
+        ":CONFIG_PICK_B",
+    ],
+    types = {
+        "CONFIG_FOO": "bool",
+        "CONFIG_COUNT": "int",
+        "CONFIG_LABEL": "string",
+        "CONFIG_ADDR": "hex",
+        "CONFIG_MODULES": "bool",
+        "CONFIG_DRIVER_A": "tristate",
+        "CONFIG_DRIVER_B": "bool",
+        "CONFIG_DRIVER_B_RANGE": "int",
+        "CONFIG_EXTRA": "int",
+        "CONFIG_QUOTED": "string",
+        "CONFIG_TAINTED": "string",
+        "CONFIG_INDIRECT": "int",
+        "CONFIG_PICK_A": "bool",
+        "CONFIG_PICK_B": "bool",
+    },
+    visibility = ["//visibility:public"],
+)
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config.h.in",
+    deps = [":autoconf"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "config",
+    hdrs = ["config.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+kconfig_savedefconfig(
+    name = "savedefconfig",
+    settings = [
+        ":CONFIG_FOO",
+        ":CONFIG_COUNT",
+        ":CONFIG_LABEL",
+        ":CONFIG_ADDR",
+        ":CONFIG_MODULES",
+        ":CONFIG_DRIVER_A",
+        ":CONFIG_DRIVER_B",
+        ":CONFIG_DRIVER_B_RANGE",
+        ":CONFIG_EXTRA",
+        ":CONFIG_QUOTED",
+        ":CONFIG_TAINTED",
+        ":CONFIG_INDIRECT",
+        ":CONFIG_PICK_A",
+        ":CONFIG_PICK_B",
+    ],
+    defaults = {
+        "CONFIG_FOO": "False",
+        "CONFIG_COUNT": "3",
+        "CONFIG_LABEL": "héllo",
+        "CONFIG_ADDR": "0x1000",
+        "CONFIG_MODULES": "True",
+        "CONFIG_DRIVER_A": "y",
+        "CONFIG_DRIVER_B": "False",
+        "CONFIG_DRIVER_B_RANGE": "0",
+        "CONFIG_EXTRA": "7",
+        "CONFIG_QUOTED": "with \"quotes\" and \\ backslash",
+        "CONFIG_TAINTED": "",
+        "CONFIG_INDIRECT": "0",
+        "CONFIG_PICK_A": "True",
+        "CONFIG_PICK_B": "False",
+    },
+    types = {
+        "CONFIG_DRIVER_A": "tristate",
+    },
+    visibility = ["//visibility:public"],
+)
+load("@rules_kconfig//kconfig:kconfig_library.bzl", "kconfig_library")
+
+kconfig_library(
+    name = "lib",
+    root = "kconfig_srcs/Kconfig",
+    srcs = glob(["kconfig_srcs/**"]),
+    visibility = ["//visibility:public"],
+)

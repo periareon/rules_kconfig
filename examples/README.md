@@ -24,12 +24,12 @@ bazel build //:lib
 ```
 
 The examples take `rules_kconfig` from this source checkout, which carries no
-build of the parser, so name one: `RULES_KCONFIG_WASM` (with
-`--experimental_repository_ctx_execute_wasm`) or `RULES_KCONFIG_TOOL`, as
-absolute paths through `--repo_env`, for instance the outputs of
-`bazel build --config=wasm32 //kconfig/private/parser:kconfig_wasm` and
-`bazel build //kconfig/private/parser:kconfig_tool` at the root. With a
-release of `rules_kconfig` nothing is needed.
+build of the parser, so name one through `--repo_env`: `RULES_KCONFIG_TOOL`
+as the absolute path of the output of
+`bazel build //kconfig/private/parser:kconfig_tool` at the root, or
+`RULES_KCONFIG_WASM` as that of `kconfig_wasm` built with `--config=wasm32`,
+with `--experimental_repository_ctx_execute_wasm`. With a release of
+`rules_kconfig` nothing is needed.
 
 ### Overriding kconfig values
 
@@ -48,6 +48,15 @@ The generated `@simple_kconfig//:config.h` will contain:
 #define CONFIG_COUNT 4
 /* #undef CONFIG_LABEL */
 ```
+
+## kconfig_version
+
+A Kconfig tree written in the grammar of the kernel's parser of 4.19, the
+one U-Boot carries: `option modules`, `---help---` and an `optional` choice.
+`kconfig.repo` names that release with `kconfig_version = "4.19"`, and the
+tree is parsed and resolved as that release's `conf` would; a `cc_test`
+checks the `config.h`. Without the version the current kernel's parser
+rejects the tree.
 
 ## upstream
 

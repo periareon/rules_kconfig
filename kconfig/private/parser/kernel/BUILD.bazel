@@ -1,14 +1,18 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_cc//cc:defs.bzl", "cc_library")
+load("//kconfig/private:versions.bzl", "PARSER_VERSIONS", "version_id")
 
-# The kernel's parser is compiled only when the module is built,
-# from the `kernel_kconfig` repository (see repository.bzl); bison and flex
-# are dev dependencies, the BCR builds of the tools, whose own rules run them.
+# The kernel's parser is compiled only when a parser build is, from the
+# `kernel_kconfig_<version>` repositories (see repository.bzl); bison and
+# flex are dev dependencies, the BCR builds of the tools, whose own rules run
+# them.
 
 # What `kernel_kconfig_repository` writes into the fetched sources.
 exports_files([
     "BUILD.linux_kconfig.bazel",
-    "kconfiglib_dialect.patch",
+    "BUILD.linux_kconfig_legacy.bazel",
+    "host_4.19.patch",
+    "host_6.12.patch",
 ])
 
 # The host interface the parser is compiled against; see host.h.
@@ -18,6 +22,19 @@ cc_library(
     includes = ["."],
     visibility = ["//visibility:public"],
 )
+
+# The prefix of each release's names, which the release's parser and shim are
+# compiled with so that the parsers of every release link into one program;
+# see prefix_<id>.h.
+[
+    cc_library(
+        name = "prefix_" + version_id(version),
+        hdrs = ["prefix_{}.h".format(version_id(version))],
+        includes = ["."],
+        visibility = ["//visibility:public"],
+    )
+    for version in PARSER_VERSIONS
+]
 
 # The POSIX headers the kernel's sources include and the Windows CRT lacks,
 # with what the sources use of them; see compat/windows.
@@ -34,4 +51,5 @@ bzl_library(
     name = "bzl_lib",
     srcs = ["repository.bzl"],
     visibility = ["//kconfig:__subpackages__"],
+    deps = ["//kconfig/private:versions_bzl_lib"],
 )

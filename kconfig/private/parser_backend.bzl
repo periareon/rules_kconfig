@@ -56,9 +56,8 @@ _MAX_ROUNDS = 256
 # Starlark has no `while`; a tree with more directories than this is an error.
 _MAX_TREE_DIRS = 1000000
 
-# The environment variables the parser reads of its own accord, which
-# kconfiglib honoured as well: the prefix of the symbols and the header of
-# the `.config`. A Kconfig file may name any other, through `$(NAME)` or
+# The environment variables the parser reads of its own accord: the prefix
+# of the symbols and the header of the `.config`. A Kconfig file may name any other, through `$(NAME)` or
 # `option env=`; the parser asks for those as it meets them, like files.
 _PARSER_ENV = [
     "CONFIG_",
@@ -352,7 +351,7 @@ def _stat(repository_ctx, path):
     return {"content": repository_ctx.read(target), "exists": True, "is_dir": False}
 
 def _shell(repository_ctx, command, srctree, env):
-    """Run a `$(shell,...)` command the way kconfiglib did, in the tree's variables."""
+    """Run a `$(shell,...)` command as `conf` would, in the tree's variables."""
     if _is_windows(repository_ctx):
         argv = ["cmd.exe", "/c", command]
     else:

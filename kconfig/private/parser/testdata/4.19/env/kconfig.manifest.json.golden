@@ -1,0 +1,8 @@
+{
+  "root": "Kconfig",
+  "files": [
+    "Kconfig"
+  ],
+  "kconfig_version": "4.19",
+  "parser_version": "4.19"
+}

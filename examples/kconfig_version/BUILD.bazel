@@ -1,0 +1,9 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+# The repository generated from the tree with the parser of 4.19; `config.h`
+# has what that parser resolves.
+cc_test(
+    name = "test_config",
+    srcs = ["test_config.c"],
+    deps = ["@legacy_kconfig//:config"],
+)

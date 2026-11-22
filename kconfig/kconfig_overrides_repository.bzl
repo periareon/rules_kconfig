@@ -9,12 +9,17 @@ load(
     "select_backend",
     "write_files",
 )
+load("//kconfig/private:versions.bzl", "DEFAULT_KCONFIG_VERSION", "parser_version")
 
 def _inputs(repository_ctx):
-    """What both backends read: the manifest of the source repository and the configs."""
+    """What the parser reads: the manifest of the source repository and the configs."""
     manifest_path = repository_ctx.path(repository_ctx.attr.kconfig)
     manifest = json.decode(repository_ctx.read(manifest_path))
     kconfig_srcs = manifest_path.dirname.get_child("kconfig_srcs")
+
+    # The version the source repository was generated with; a manifest of a
+    # release before versions is of the default.
+    kconfig_version = manifest.get("kconfig_version") or DEFAULT_KCONFIG_VERSION
 
     base_config_path = None
     base_config = manifest.get("config")
@@ -32,9 +37,11 @@ def _inputs(repository_ctx):
         config_ws_path = (config_label.package + "/" + config_label.name).lstrip("/"),
         base_config = base_config_path,
         settings_labels = manifest.get("settings_labels") or {},
-        # The variables the source repository gave the tree; it is parsed
-        # again with them.
+        # The variables the source repository gave the tree, and its version;
+        # it is parsed again with them.
         env = manifest.get("env") or {},
+        kconfig_version = kconfig_version,
+        parser_version = parser_version(kconfig_version, "the manifest of " + str(repository_ctx.attr.kconfig)),
     )
 
 def _generate_with_parser(repository_ctx, backend, inputs):
@@ -45,6 +52,8 @@ def _generate_with_parser(repository_ctx, backend, inputs):
     request["kconfig_repo"] = inputs.kconfig_repo
     request["config_ws_path"] = inputs.config_ws_path
     request["settings_labels"] = dict(inputs.settings_labels)
+    request["kconfig_version"] = inputs.kconfig_version
+    request["parser_version"] = inputs.parser_version
     seed_file(repository_ctx, request, inputs.config)
     if inputs.base_config:
         seed_file(repository_ctx, request, inputs.base_config)
@@ -75,8 +84,8 @@ kconfig_overrides_repository = repository_rule(
 Overlay .config values onto an existing kconfig repository.
 
 Reads the manifest from the source kconfig repository to locate the
-symlinked Kconfig source tree, then reparses it (with the WebAssembly
-module or kconfiglib, as `kconfig_repository` does) with a
+symlinked Kconfig source tree, then reparses it, with the parser of the
+`kconfig_version` the manifest records, as `kconfig_repository` did, with a
 user-provided `.config` file. If the source repository was itself
 created with a `.config`, the overrides are stacked on top of those
 base values. Generates a `defs.bzl` containing a Starlark transition

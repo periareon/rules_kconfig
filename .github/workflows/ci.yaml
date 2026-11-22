@@ -76,6 +76,7 @@ jobs:
           - simple
           - overrides
           - settings_labels
+          - kconfig_version
           - upstream
         include:
           - os: macos-latest
@@ -286,7 +287,7 @@ jobs:
       - name: Generate the example repositories with the module (Unix)
         if: startswith(runner.os, 'Windows') != true
         run: |
-          for example in simple overrides settings_labels; do
+          for example in simple overrides settings_labels kconfig_version; do
             echo "::group::${example}"
             (cd "examples/${example}" && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
               --experimental_repository_ctx_execute_wasm \
@@ -306,7 +307,7 @@ jobs:
         if: startswith(runner.os, 'Windows')
         run: |
           $module = "$env:RUNNER_TEMP/kconfig_wasm/kconfig.wasm" -replace '\\', '/'
-          foreach ($example in @("simple", "overrides", "settings_labels")) {
+          foreach ($example in @("simple", "overrides", "settings_labels", "kconfig_version")) {
             Write-Output "::group::$example"
             Push-Location "examples/$example"
             try {
@@ -324,7 +325,7 @@ jobs:
         if: startswith(runner.os, 'Windows') != true
         run: |
           chmod +x "${RUNNER_TEMP}"/kconfig_tool/kconfig_tool-*
-          for example in simple overrides settings_labels upstream; do
+          for example in simple overrides settings_labels kconfig_version upstream; do
             echo "::group::${example}"
             (cd "examples/${example}" && bazel ${BAZEL_STARTUP_FLAGS[@]} test //... \
               --repo_env=RULES_KCONFIG_TOOL="${RUNNER_TEMP}/kconfig_tool/kconfig_tool-${{ matrix.key }}")
@@ -334,7 +335,7 @@ jobs:
         if: startswith(runner.os, 'Windows')
         run: |
           $tool = "$env:RUNNER_TEMP/kconfig_tool/kconfig_tool-${{ matrix.key }}.exe" -replace '\\', '/'
-          foreach ($example in @("simple", "overrides", "settings_labels")) {
+          foreach ($example in @("simple", "overrides", "settings_labels", "kconfig_version")) {
             Write-Output "::group::$example"
             Push-Location "examples/$example"
             try {

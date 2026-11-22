@@ -11,7 +11,7 @@
 #   Writes the following to the current directory. These paths must match
 #   the `release_files` globs in release.yaml.
 #     rules_kconfig-${TAG}.tar.gz   The Bazel module source archive, whose
-#                                   kconfig/private/parser.bzl names the
+#                                   kconfig/private/parser/module.bzl names the
 #                                   URL and integrity of the module below.
 #     kconfig.wasm                  The WebAssembly module the `kconfig`
 #                                   extension of this release downloads.
@@ -48,7 +48,7 @@ if [[ "${MODULE_VERSION}" != "${TAG}" ]]; then
 fi
 
 SCRATCH="$(mktemp -d)"
-MODULE_BZL="${WORKSPACE}/kconfig/private/parser.bzl"
+MODULE_BZL="${WORKSPACE}/kconfig/private/parser/module.bzl"
 cleanup() {
     # Put back the source form of module.bzl; the baked form lives in the archive.
     if [[ -f "${SCRATCH}/module.bzl.orig" ]]; then

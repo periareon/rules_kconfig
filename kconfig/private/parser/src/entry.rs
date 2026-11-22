@@ -6,6 +6,7 @@ use serde_bytes::ByteBuf;
 use crate::ffi;
 use crate::host::{Host, Session};
 use crate::json::Value;
+use crate::parser::Kconfig;
 use crate::request::Request;
 use crate::{overrides, paths, repository};
 
@@ -52,6 +53,10 @@ fn generate(request: &Request) -> Result<Value, String> {
     let srctree = paths::internal(required(&request.srctree, "srctree")?);
     let kconfig = paths::internal(required(&request.kconfig, "kconfig")?);
     let settings_labels = request.settings_labels();
+    // The parser of the kernel release Starlark resolved `kconfig_version`
+    // to; the newest linked in when the request names none.
+    ffi::select(optional(&request.parser_version))?;
+    let parser_version = Kconfig::kernel_version();
     match command {
         b"repository" => {
             let defaults = optional(&request.defaults).map(paths::internal);
@@ -66,6 +71,8 @@ fn generate(request: &Request) -> Result<Value, String> {
                 settings_labels: &settings_labels,
                 settings_options: request.settings_options.as_ref(),
                 env: &kconfig_env,
+                kconfig_version: optional(&request.kconfig_version).unwrap_or(&parser_version),
+                parser_version: &parser_version,
             })?;
             Ok(ok(
                 vec![
@@ -116,8 +123,8 @@ pub fn handle(request: &Request) -> Value {
         host: Host::new(request),
         srctree,
     });
-    // kconfiglib read these as it started; the kernel's parser reads them
-    // late, at `conf_write`, which would cost a round of their own.
+    // The kernel's parser reads these late, at `conf_write`, which would cost
+    // a round of their own; asked for now, they come with the first.
     ffi::with(|session| {
         session.getenv(b"CONFIG_");
         session.getenv(b"KCONFIG_CONFIG_HEADER");
