@@ -47,6 +47,11 @@ build:windows --extra_execution_platforms=//tools/toolchains:windows_clang_cl
 build:black --aspects=@rules_venv//python/black:defs.bzl%py_black_aspect
 build:black --output_groups=+py_black_checks
 
+# Enable clippy for all targets in the workspace
+build:clippy --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build:clippy --output_groups=+clippy_checks
+build --@rules_rust//rust/settings:clippy.toml=//:.clippy.toml
+
 # Enable isort for all targets in the workspace
 build:isort --aspects=@rules_venv//python/isort:defs.bzl%py_isort_aspect
 build:isort --output_groups=+py_isort_checks
@@ -62,11 +67,18 @@ build:pylint --aspects=@rules_venv//python/pylint:defs.bzl%py_pylint_aspect
 build:pylint --output_groups=+py_pylint_checks
 build --@rules_venv//python/pylint:config=//:.pylintrc.toml
 
+# Enable rustfmt for all targets in the workspace
+build:rustfmt --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect
+build:rustfmt --output_groups=+rustfmt_checks
+build --@rules_rust//rust/settings:rustfmt.toml=//:.rustfmt.toml
+
 # Define a config that enables all linter aspects.
 build:strict --config=black
+build:strict --config=clippy
 build:strict --config=isort
-build:strict --config=pylint
 build:strict --config=mypy
+build:strict --config=pylint
+build:strict --config=rustfmt
 
 # Enable all linters and formatters
 test --config=strict

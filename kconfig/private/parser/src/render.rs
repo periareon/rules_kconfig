@@ -9,14 +9,14 @@ pub fn template(template: &str, fields: &[(&str, &[u8])]) -> Vec<u8> {
     let bytes = template.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'{' {
-            if let Some(end) = bytes[i..].iter().position(|&b| b == b'}') {
-                let name = &template[i + 1..i + end];
-                if let Some((_, value)) = fields.iter().find(|(field, _)| *field == name) {
-                    out.extend_from_slice(value);
-                    i += end + 1;
-                    continue;
-                }
+        if bytes[i] == b'{'
+            && let Some(end) = bytes[i..].iter().position(|&b| b == b'}')
+        {
+            let name = &template[i + 1..i + end];
+            if let Some((_, value)) = fields.iter().find(|(field, _)| *field == name) {
+                out.extend_from_slice(value);
+                i += end + 1;
+                continue;
             }
         }
         out.push(bytes[i]);

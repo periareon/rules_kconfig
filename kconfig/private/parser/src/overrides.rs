@@ -168,13 +168,13 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
         if labeled.contains(&setting.config_name()) {
             continue;
         }
-        if let Some(override_setting) = override_by_name.get(setting.name.as_slice()) {
-            if override_setting.default != setting.default {
-                overrides.insert(
-                    flag_label(request.kconfig_repo, setting),
-                    starlark_literal(&override_setting.default),
-                );
-            }
+        if let Some(override_setting) = override_by_name.get(setting.name.as_slice())
+            && override_setting.default != setting.default
+        {
+            overrides.insert(
+                flag_label(request.kconfig_repo, setting),
+                starlark_literal(&override_setting.default),
+            );
         }
     }
 

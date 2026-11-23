@@ -2,7 +2,7 @@
 //! (see shim.c): the symbols, their values and where they are defined.
 
 use std::collections::BTreeSet;
-use std::ffi::{CString, c_char};
+use std::ffi::CString;
 
 use crate::ffi;
 
@@ -21,7 +21,7 @@ pub struct Kconfig {
 
 #[derive(Clone, Copy)]
 pub struct Symbol {
-    ptr: *mut ffi::symbol,
+    inner: ffi::Symbol,
 }
 
 /// Where a symbol is defined.
@@ -42,22 +42,17 @@ fn c_string(bytes: &[u8]) -> Result<CString, String> {
     CString::new(bytes).map_err(|_| "a path contains a NUL byte".to_string())
 }
 
-fn owned(ptr: *const c_char) -> Vec<u8> {
-    unsafe { ffi::bytes_of(ptr) }
-}
-
 impl Kconfig {
     /// The kernel release of the parser selected for the call, `6.12`, as
     /// `kconfig_version` names it.
     pub fn kernel_version() -> Vec<u8> {
-        owned(ffi::shim().version)
+        ffi::shim().version()
     }
 
     /// Parse the tree rooted at `filename`, through the session's host.
     pub fn parse(filename: &[u8]) -> Result<Kconfig, String> {
         let name = c_string(filename)?;
-        let status = unsafe { (ffi::shim().parse)(name.as_ptr()) };
-        match status {
+        match ffi::shim().parse(&name) {
             0 => Ok(Kconfig { config_text: None }),
             1 => Err(format!(
                 "[Errno 2] No such file or directory: '{}'",
@@ -73,34 +68,23 @@ impl Kconfig {
 
     /// What the parser printed to stderr.
     pub fn diagnostics() -> Vec<u8> {
-        let mut len = 0usize;
-        let ptr = unsafe { (ffi::shim().diagnostics)(&mut len) };
-        unsafe { ffi::bytes_of_len(ptr, len) }
+        ffi::shim().diagnostics()
     }
 
     /// The Kconfig files read, in order.
     pub fn kconfig_filenames(&self) -> Vec<Vec<u8>> {
-        let mut count = 0usize;
-        let items = unsafe { (ffi::shim().filenames)(&mut count) };
-        (0..count)
-            .map(|i| owned(unsafe { *items.add(i) }))
-            .collect()
+        ffi::shim().filenames()
     }
 
     /// Every named symbol once, in the order the menu tree defines them.
     pub fn unique_defined_syms(&self) -> Vec<Symbol> {
-        let mut count = 0usize;
-        let items = unsafe { (ffi::shim().menu_symbols)(&mut count) };
         let mut seen = BTreeSet::new();
-        let mut symbols = Vec::new();
-        for i in 0..count {
-            let ptr = unsafe { *items.add(i) };
-            if seen.insert(ptr as usize) {
-                symbols.push(Symbol { ptr });
-            }
-        }
-        unsafe { ffi::free(items as *mut _) };
-        symbols
+        ffi::shim()
+            .menu_symbols()
+            .into_iter()
+            .filter(|symbol| seen.insert(symbol.id()))
+            .map(|inner| Symbol { inner })
+            .collect()
     }
 
     /// `load_config(text, replace)`: read a `.config`, which resets every
@@ -116,11 +100,9 @@ impl Kconfig {
             }
             _ => text,
         };
-        let failed =
-            unsafe { (ffi::shim().load_config)(text.as_ptr() as *const c_char, text.len()) }
-                != 0;
+        let loaded = ffi::shim().load_config(&text);
         self.config_text = Some(text);
-        if failed {
+        if !loaded {
             return Err("the parser could not read the configuration".to_string());
         }
         Ok(())
@@ -128,13 +110,11 @@ impl Kconfig {
 
     /// The `.config` the kernel writes, after `header`.
     pub fn config_contents(&self, header: &[u8]) -> Result<Vec<u8>, String> {
-        let mut len = 0usize;
-        let ptr = unsafe { (ffi::shim().config_contents)(&mut len) };
-        if ptr.is_null() {
-            return Err("the parser could not write the configuration".to_string());
-        }
+        let contents = ffi::shim()
+            .config_contents()
+            .ok_or_else(|| "the parser could not write the configuration".to_string())?;
         let mut text = header.to_vec();
-        text.extend(unsafe { ffi::bytes_of_len(ptr, len) });
+        text.extend(contents);
         Ok(text)
     }
 }
@@ -142,54 +122,45 @@ impl Kconfig {
 impl Symbol {
     /// The name, without `CONFIG_`.
     pub fn name(&self) -> Vec<u8> {
-        owned(unsafe { (ffi::shim().symbol_name)(self.ptr) })
+        self.inner.name()
     }
 
     /// The type as declared: one of the constants above.
     pub fn orig_type(&self) -> i32 {
-        unsafe { (ffi::shim().symbol_type)(self.ptr) }
+        self.inner.type_()
     }
 
     /// The value as a string, calculated.
     pub fn str_value(&self) -> Vec<u8> {
-        owned(unsafe { (ffi::shim().symbol_str_value)(self.ptr) })
+        self.inner.str_value()
     }
 
     /// The value a `.config` gave, or None.
     pub fn user_value(&self) -> Option<UserValue> {
-        if unsafe { (ffi::shim().symbol_has_user_value)(self.ptr) } == 0 {
+        if !self.inner.has_user_value() {
             return None;
         }
         if matches!(self.orig_type(), BOOL | TRISTATE) {
-            return Some(UserValue::Tri(unsafe {
-                (ffi::shim().symbol_user_tri)(self.ptr)
-            }));
+            return Some(UserValue::Tri(self.inner.user_tri()));
         }
-        Some(UserValue::Str(owned(unsafe {
-            (ffi::shim().symbol_user_str)(self.ptr)
-        })))
+        Some(UserValue::Str(self.inner.user_str()))
     }
 
     /// Whether a `.config` can set the symbol: it has a prompt whose
     /// condition holds.
     pub fn visible(&self) -> bool {
-        unsafe { (ffi::shim().symbol_visible)(self.ptr) != 0 }
+        self.inner.visible()
     }
 
     /// The menu nodes defining the symbol.
     pub fn nodes(&self) -> Vec<Node> {
-        let mut count = 0usize;
-        let items = unsafe { (ffi::shim().symbol_nodes)(self.ptr, &mut count) };
-        let nodes = (0..count)
-            .map(|i| {
-                let menu = unsafe { *items.add(i) };
-                Node {
-                    filename: owned(unsafe { (ffi::shim().menu_filename)(menu) }),
-                    linenr: unsafe { (ffi::shim().menu_lineno)(menu) },
-                }
+        self.inner
+            .nodes()
+            .into_iter()
+            .map(|menu| Node {
+                filename: menu.filename(),
+                linenr: menu.lineno(),
             })
-            .collect();
-        unsafe { ffi::free(items as *mut _) };
-        nodes
+            .collect()
     }
 }

@@ -3,7 +3,9 @@ exports_files([
     "LICENSE",
     "cargo-bazel-lock.json",
     "version.bzl",
+    ".clippy.toml",
     ".isort.cfg",
     ".mypy.ini",
     ".pylintrc.toml",
+    ".rustfmt.toml",
 ])
