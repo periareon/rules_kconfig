@@ -1,0 +1,16 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+# The program behind `release_artifact` (defs.bzl): finds the asset in its
+# runfiles and copies it into the directory it is given.
+rust_binary(
+    name = "publisher",
+    srcs = ["src/main.rs"],
+    deps = ["@rules_rust//rust/runfiles"],
+)
+
+bzl_library(
+    name = "bzl_lib",
+    srcs = glob(["*.bzl"]),
+    visibility = ["//visibility:public"],
+)

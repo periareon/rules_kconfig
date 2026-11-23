@@ -63,11 +63,11 @@ trap cleanup EXIT
 # by their hashes (the kernel sources, the Rust toolchain, the wasi-sdk). It
 # is attached to the release and attested with the archive, and its integrity
 # is baked into the archive's module.bzl so that the `kconfig` extension of
-# this release downloads exactly this module.
-rm -f kconfig.wasm
-(cd "${WORKSPACE}" && bazel build --config=wasm32 -c opt //kconfig/private/parser:kconfig_wasm)
-cp "${WORKSPACE}/$(cd "${WORKSPACE}" && bazel cquery --config=wasm32 -c opt --output=files //kconfig/private/parser:kconfig_wasm)" kconfig.wasm
-chmod 0644 kconfig.wasm
+# this release downloads exactly this module. `kconfig_wasm_release` builds
+# it in opt for wasm32-wasip1 whatever the flags, and publishes it here as
+# `kconfig.wasm` (see tools/release).
+DEST="$(pwd)"
+(cd "${WORKSPACE}" && bazel run //kconfig/private/parser:kconfig_wasm_release -- "${DEST}")
 integrity() {
     echo "sha256-$(shasum --algorithm 256 "$1" | awk '{ print $1 }' | xxd -r -p | base64)"
 }
@@ -80,18 +80,33 @@ cp "${MODULE_BZL}" "${SCRATCH}/module.bzl.orig"
 sed -i.bak "s|^MODULE_INTEGRITY = \"\"$|MODULE_INTEGRITY = \"${MODULE_INTEGRITY}\"|" "${MODULE_BZL}" && rm -f "${MODULE_BZL}.bak"
 grep -q "^MODULE_INTEGRITY = \"${MODULE_INTEGRITY}\"$" "${MODULE_BZL}"
 
-# The native builds, from the `binaries` job of release.yaml, which the
-# reusable workflow downloads into `artifacts/<name>/`. Each is attached and
-# its integrity baked in; a platform with no build is left empty, and the
-# extension offers no native build there.
+# The native builds, from the `binaries` job of release.yaml. The reusable
+# workflow runs `actions/download-artifact` with no `path`, which unpacks
+# every artifact of the run into `${GITHUB_WORKSPACE}/<artifact name>/`;
+# its own comment says `artifacts/`, where older versions put them, so both
+# are accepted. Each artifact directory shares its name with the release
+# asset it holds, so it is moved out of the workspace before the asset is
+# copied into cwd; left in place it would also match the `kconfig_tool-*`
+# glob of `release_files`. Each build is attached and its integrity baked
+# in; a platform with no build is left empty, and the extension offers no
+# native build there.
+mkdir -p "${SCRATCH}/artifacts"
 TOOL_INTEGRITIES=""
+TOOLS_FOUND=0
 for key in linux-aarch64 linux-x86_64 macos-aarch64 windows-aarch64 windows-x86_64; do
+    for dir in "${WORKSPACE}/artifacts/kconfig_tool-${key}" "${WORKSPACE}/kconfig_tool-${key}"; do
+        if [[ -d "${dir}" ]]; then
+            mv "${dir}" "${SCRATCH}/artifacts/kconfig_tool-${key}"
+            break
+        fi
+    done
     rm -f "kconfig_tool-${key}" "kconfig_tool-${key}.exe"
-    built="$(ls "${WORKSPACE}/artifacts/kconfig_tool-${key}/kconfig_tool-${key}"* 2>/dev/null | head -n 1 || true)"
+    built="$(ls "${SCRATCH}/artifacts/kconfig_tool-${key}/kconfig_tool-${key}"* 2>/dev/null | head -n 1 || true)"
     if [[ -z "${built}" ]]; then
         echo "WARNING: no native build for ${key}; the release will carry none"
         continue
     fi
+    TOOLS_FOUND=$((TOOLS_FOUND + 1))
     cp "${built}" "$(basename "${built}")"
     chmod 0755 "$(basename "${built}")"
     tool_integrity="$(integrity "$(basename "${built}")")"
@@ -100,6 +115,12 @@ for key in linux-aarch64 linux-x86_64 macos-aarch64 windows-aarch64 windows-x86_
     TOOL_INTEGRITIES="${TOOL_INTEGRITIES}- \`${key}\`: \`${tool_integrity}\`
 "
 done
+# No build at all means the artifact layout changed under us, not that
+# every platform was skipped; refuse to publish a release without them.
+if [[ "${TOOLS_FOUND}" -eq 0 ]]; then
+    echo "ERROR: no native builds found under ${WORKSPACE}; did the binaries job upload them?"
+    exit 1
+fi
 
 # Build the source archive. Exclude .git (history isn't needed by
 # consumers), .github (release infrastructure isn't part of the ruleset)

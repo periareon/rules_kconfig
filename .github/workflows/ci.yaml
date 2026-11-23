@@ -162,10 +162,12 @@ jobs:
           disk-cache: ${{ github.workflow }}
           repository-cache: true
 
+      # The module the way a release builds it (release_prep.sh), and the
+      # wasi-sdk toolchain's own smoke test.
       - name: Build the module
         run: |
-          bazel ${BAZEL_STARTUP_FLAGS[@]} build --config=wasm32 -c opt //kconfig/private/parser:kconfig_wasm //tools/wasi_sdk/test:hello
-          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery --config=wasm32 -c opt --output=files //kconfig/private/parser:kconfig_wasm)" "${RUNNER_TEMP}/kconfig.wasm"
+          bazel ${BAZEL_STARTUP_FLAGS[@]} run //kconfig/private/parser:kconfig_wasm_release -- "${RUNNER_TEMP}"
+          bazel ${BAZEL_STARTUP_FLAGS[@]} build --config=wasm32 -c opt //tools/wasi_sdk/test:hello
           echo "integrity: sha256-$(shasum --algorithm 256 "${RUNNER_TEMP}/kconfig.wasm" | awk '{ print $1 }' | xxd -r -p | base64)"
 
       - name: Publish the module
@@ -214,17 +216,12 @@ jobs:
 
       - name: Build the native parser (Unix)
         if: startswith(runner.os, 'Windows') != true
-        run: |
-          bazel ${BAZEL_STARTUP_FLAGS[@]} build -c opt //kconfig/private/parser:kconfig_tool
-          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery -c opt --output=files //kconfig/private/parser:kconfig_tool)" "${RUNNER_TEMP}/kconfig_tool-${{ matrix.key }}"
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} run //kconfig/private/parser:kconfig_tool_release -- "${RUNNER_TEMP}"
       - name: Build the native parser (Windows)
         if: startswith(runner.os, 'Windows')
         run: |
-          & bazel $env:BAZEL_STARTUP_FLAGS build -c opt //kconfig/private/parser:kconfig_tool
+          & bazel $env:BAZEL_STARTUP_FLAGS run //kconfig/private/parser:kconfig_tool_release -- "$env:RUNNER_TEMP"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $tool = & bazel $env:BAZEL_STARTUP_FLAGS cquery -c opt --output=files //kconfig/private/parser:kconfig_tool
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item $tool "$env:RUNNER_TEMP/kconfig_tool-${{ matrix.key }}.exe"
 
       - name: Publish the native parser
         uses: actions/upload-artifact@v4
