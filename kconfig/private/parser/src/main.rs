@@ -4,6 +4,7 @@
 //! standard input, and its output is not byte-safe); without arguments it
 //! reads standard input and writes standard output, for the tests. The
 //! parser parses one tree per process, so each round is a run.
+#![forbid(unsafe_code)]
 
 use std::io::{Read, Write};
 use std::process::ExitCode;

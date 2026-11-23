@@ -133,7 +133,7 @@ pub fn handle(request: &Request) -> Value {
         Ok(response) => response,
         Err(message) => error(message),
     };
-    let mut session = ffi::take().expect("the session was installed above");
+    let session = ffi::take().expect("the session was installed above");
 
     // A round that lacked something is discarded, whatever came of it.
     if session.host.pending() {

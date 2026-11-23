@@ -73,9 +73,12 @@ impl Requests {
     }
 }
 
+/// A directory's entries: each name, and whether it is a directory.
+type Listing = Vec<(Vec<u8>, bool)>;
+
 pub struct Host {
     files: BTreeMap<Vec<u8>, FileInfo>,
-    dirs: BTreeMap<Vec<u8>, Option<Vec<(Vec<u8>, bool)>>>,
+    dirs: BTreeMap<Vec<u8>, Option<Listing>>,
     shell_results: BTreeMap<Vec<u8>, Option<ShellResult>>,
     /// The variables Starlark has looked up; None is unset.
     env: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
@@ -141,7 +144,7 @@ impl Host {
     /// The file's info, or None while unknown.
     pub fn stat(&mut self, path: &[u8]) -> Option<&FileInfo> {
         if !self.files.contains_key(path) {
-            match self.from_listing(path) {
+            match self.listing_stat(path) {
                 Some(info) => {
                     self.files.insert(path.to_vec(), info);
                 }
@@ -157,7 +160,7 @@ impl Host {
     /// What the listing of a path's directory says of it: missing, or a
     /// directory. None when the listing is unknown, or names a file, whose
     /// content still has to be read.
-    fn from_listing(&self, path: &[u8]) -> Option<FileInfo> {
+    fn listing_stat(&self, path: &[u8]) -> Option<FileInfo> {
         let (dirname, basename) = paths::split(path);
         if basename.is_empty() {
             return None;

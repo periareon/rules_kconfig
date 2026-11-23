@@ -59,6 +59,11 @@
 //! `//kconfig/private:versions.bzl` lists, each behind its own copy of
 //! shim.c and all linked into the one program (see ffi.rs).
 
+// The binding to the parser is the crate's unsafe code, confined to ffi.rs,
+// which allows it back for itself and explains each block.
+#![deny(unsafe_code)]
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 pub mod entry;
 pub mod ffi;
 pub mod host;
