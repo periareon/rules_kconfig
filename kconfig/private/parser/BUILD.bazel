@@ -64,6 +64,22 @@ rust_test(
 rust_binary(
     name = "kconfig_tool",
     srcs = ["src/main.rs"],
+    # On Linux the C library is linked in, so that a release's build runs on
+    # any glibc and not only one as new as the runner's: the BCR tests on
+    # Ubuntu 20.04, Debian 10 and Rocky Linux 8 (glibc 2.31 and 2.28).
+    # rules_cc's toolchain links with gold where it is installed, which cannot
+    # link glibc's static archive, so bfd is named; and libc once more at the
+    # end, statically, since rules_rust lists the C parsers again after
+    # rustc's own `-lc`, which is where their members are pulled in.
+    rustc_flags = select({
+        "@platforms//os:linux": [
+            "-Ctarget-feature=+crt-static",
+            "-Clink-arg=-fuse-ld=bfd",
+            "-Clink-arg=-Wl,-Bstatic",
+            "-Clink-arg=-lc",
+        ],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
     deps = [":kconfig"],
 )

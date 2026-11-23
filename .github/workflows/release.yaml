@@ -124,6 +124,20 @@ jobs:
         run: |
           & bazel $env:BAZEL_STARTUP_FLAGS run //kconfig/private/parser:kconfig_tool_release -- "$env:RUNNER_TEMP"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The Linux builds link the C library in (see the `rustc_flags` of
+      # `kconfig_tool`); a build that needs the runner's glibc fails on any
+      # older one, as 0.7.0's did on every Linux platform the BCR tests on.
+      - name: Check the native parser is statically linked (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          tool="$(ls "${RUNNER_TEMP}"/kconfig_tool-${{ matrix.key }}*)"
+          file "${tool}"
+          if readelf --dynamic "${tool}" | grep -q NEEDED; then
+            echo "${tool} is dynamically linked:" >&2
+            readelf --dynamic "${tool}" | grep NEEDED >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: kconfig_tool-${{ matrix.key }}
