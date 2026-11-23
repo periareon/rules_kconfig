@@ -292,8 +292,11 @@ build --@my_kconfig//:CONFIG_COUNT=7
 <p>The header follows the Kconfig tools' <code>autoconf.h</code>: <code>bool</code> and <code>tristate</code>
 symbols set to <code>y</code> define <code>CONFIG_&lt;name&gt;</code> as <code>1</code>, a <code>tristate</code> set to <code>m</code>
 defines <code>CONFIG_&lt;name&gt;_MODULE</code> instead, <code>int</code> and <code>hex</code> values are unquoted,
-<code>string</code> values are quoted, and a symbol that is <code>n</code> or an empty string is left
-undefined.</p>
+<code>string</code> values are quoted (an empty string is <code>""</code>), and a symbol that is <code>n</code>
+is left undefined. So is a symbol the configuration gives no value because its
+<code>depends on</code> is unmet: its flag still exists, with the falsey default of its
+type, but <code>config.h</code> leaves it out so that <code>#ifdef</code> tells it apart from one
+set to <code>0</code> or <code>""</code>, as the kernel's headers expect.</p>
 <h3 id="reacting-to-flags-with-config_setting"><a class="header" href="#reacting-to-flags-with-config_setting">Reacting to flags with <code>config_setting</code></a></h3>
 <p>The generated repository includes a <code>settings/</code> subpackage with
 <code>config_setting</code> targets for every flag. Bool flags produce two targets:
