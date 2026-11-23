@@ -33,6 +33,11 @@ pub struct Setting {
     pub default: Default,
     /// `bool`, `tristate`, `int`, `hex` or `string`.
     pub kconfig_type: &'static str,
+    /// Whether the configuration gives the symbol a value: the Kconfig tools
+    /// write it to `.config` and `autoconf.h`. A build setting needs a value
+    /// either way, so one they do not write has what the parser calculates,
+    /// which is only the seed of its type (`0` for an `int`).
+    pub written: bool,
 }
 
 impl Setting {
@@ -265,6 +270,7 @@ pub fn collect_settings(
             rule,
             default,
             kconfig_type: kconfig_type_of(orig_type),
+            written: sym.written(),
         });
     }
     if !errors.is_empty() {

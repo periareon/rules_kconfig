@@ -152,6 +152,13 @@ impl Symbol {
         self.inner.visible()
     }
 
+    /// Whether the Kconfig tools write the symbol to `.config` and
+    /// `autoconf.h`: it is visible or a default applies. One they do not
+    /// write has no value.
+    pub fn written(&self) -> bool {
+        self.inner.written()
+    }
+
     /// The menu nodes defining the symbol.
     pub fn nodes(&self) -> Vec<Node> {
         self.inner

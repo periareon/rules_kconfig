@@ -33,6 +33,20 @@ config NUMERIC_STRING
 	help
 	  A string symbol is always quoted in config.h, whatever it holds.
 
+config EMPTY
+	string "An empty string"
+	default ""
+	help
+	  A string set to "" is set: config.h defines it as "".
+
+config DEPENDENT_COUNT
+	int "Count behind FOO"
+	depends on FOO
+	default 5
+	help
+	  Generated with FOO at its default of n, this has no value, and
+	  config.h leaves it undefined rather than defining it as 0.
+
 config MODULES
 	bool
 	default y

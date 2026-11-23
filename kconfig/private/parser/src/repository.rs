@@ -32,7 +32,7 @@ kconfig_autoconf(
     types = {
 {kconfig_types}
     },
-    visibility = ["//visibility:public"],
+{unset}    visibility = ["//visibility:public"],
 )
 
 autoconf_hdr(
@@ -340,6 +340,19 @@ fn render_build_file(
             b"\",",
         ])
     }));
+    // The symbols the configuration gives no value, which `autoconf.h`
+    // leaves undefined; the attribute only where there are any.
+    let unset_lines = lines(
+        settings
+            .iter()
+            .filter(|s| !s.written)
+            .map(|s| render::concat(&[b"        \"CONFIG_", &s.name, b"\","])),
+    );
+    let unset_str = if unset_lines.is_empty() {
+        Vec::new()
+    } else {
+        render::concat(&[b"    unset = [\n", &unset_lines, b"\n    ],\n"])
+    };
     out.extend(render::template(
         AUTOCONF_TEMPLATE,
         &[
@@ -347,6 +360,7 @@ fn render_build_file(
             ("defaults", &defaults_str),
             ("types", &types_str),
             ("kconfig_types", &kconfig_types_str),
+            ("unset", &unset_str),
         ],
     ));
     out.extend(render::template(

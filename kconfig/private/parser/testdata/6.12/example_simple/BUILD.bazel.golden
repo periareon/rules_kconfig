@@ -25,6 +25,16 @@ string_flag(
     build_setting_default = "42",
     visibility = ["//visibility:public"],
 )
+string_flag(
+    name = "CONFIG_EMPTY",
+    build_setting_default = "",
+    visibility = ["//visibility:public"],
+)
+int_flag(
+    name = "CONFIG_DEPENDENT_COUNT",
+    build_setting_default = 0,
+    visibility = ["//visibility:public"],
+)
 bool_flag(
     name = "CONFIG_MODULES",
     build_setting_default = True,
@@ -49,6 +59,8 @@ kconfig_settings_group(
         ":CONFIG_LABEL",
         ":CONFIG_BASE_ADDR",
         ":CONFIG_NUMERIC_STRING",
+        ":CONFIG_EMPTY",
+        ":CONFIG_DEPENDENT_COUNT",
         ":CONFIG_MODULES",
         ":CONFIG_TRISTATE",
     ],
@@ -63,6 +75,8 @@ kconfig_autoconf(
         ":CONFIG_LABEL",
         ":CONFIG_BASE_ADDR",
         ":CONFIG_NUMERIC_STRING",
+        ":CONFIG_EMPTY",
+        ":CONFIG_DEPENDENT_COUNT",
         ":CONFIG_MODULES",
         ":CONFIG_TRISTATE",
     ],
@@ -72,9 +86,14 @@ kconfig_autoconf(
         "CONFIG_LABEL": "string",
         "CONFIG_BASE_ADDR": "hex",
         "CONFIG_NUMERIC_STRING": "string",
+        "CONFIG_EMPTY": "string",
+        "CONFIG_DEPENDENT_COUNT": "int",
         "CONFIG_MODULES": "bool",
         "CONFIG_TRISTATE": "tristate",
     },
+    unset = [
+        "CONFIG_DEPENDENT_COUNT",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -101,6 +120,8 @@ kconfig_savedefconfig(
         ":CONFIG_LABEL",
         ":CONFIG_BASE_ADDR",
         ":CONFIG_NUMERIC_STRING",
+        ":CONFIG_EMPTY",
+        ":CONFIG_DEPENDENT_COUNT",
         ":CONFIG_MODULES",
         ":CONFIG_TRISTATE",
     ],
@@ -110,6 +131,8 @@ kconfig_savedefconfig(
         "CONFIG_LABEL": "hello",
         "CONFIG_BASE_ADDR": "0x1000",
         "CONFIG_NUMERIC_STRING": "42",
+        "CONFIG_EMPTY": "",
+        "CONFIG_DEPENDENT_COUNT": "0",
         "CONFIG_MODULES": "True",
         "CONFIG_TRISTATE": "n",
     },

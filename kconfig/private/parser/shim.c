@@ -682,6 +682,11 @@ static int kconfig_shim_symbol_visible(struct symbol* sym) {
     return sym->visible != no;
 }
 
+static int kconfig_shim_symbol_written(struct symbol* sym) {
+    sym_calc_value(sym);
+    return (sym->flags & SYMBOL_WRITE) != 0;
+}
+
 static int kconfig_shim_symbol_user_tri(struct symbol* sym) {
     return (int)sym->def[S_DEF_USER].tri;
 }
@@ -748,6 +753,7 @@ const struct kconfig_shim kconfig_shim_vtable = {
     .symbol_str_value = kconfig_shim_symbol_str_value,
     .symbol_has_user_value = kconfig_shim_symbol_has_user_value,
     .symbol_visible = kconfig_shim_symbol_visible,
+    .symbol_written = kconfig_shim_symbol_written,
     .symbol_user_tri = kconfig_shim_symbol_user_tri,
     .symbol_user_str = kconfig_shim_symbol_user_str,
     .symbol_nodes = kconfig_shim_symbol_nodes,

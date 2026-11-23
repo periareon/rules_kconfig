@@ -50,6 +50,7 @@ pub struct Shim {
     symbol_str_value: unsafe extern "C" fn(sym: *mut symbol) -> *const c_char,
     symbol_has_user_value: unsafe extern "C" fn(sym: *mut symbol) -> c_int,
     symbol_visible: unsafe extern "C" fn(sym: *mut symbol) -> c_int,
+    symbol_written: unsafe extern "C" fn(sym: *mut symbol) -> c_int,
     symbol_user_tri: unsafe extern "C" fn(sym: *mut symbol) -> c_int,
     symbol_user_str: unsafe extern "C" fn(sym: *mut symbol) -> *const c_char,
     symbol_nodes: unsafe extern "C" fn(sym: *mut symbol, count: *mut usize) -> *mut *mut menu,
@@ -245,6 +246,14 @@ impl Symbol {
     /// condition holds.
     pub fn visible(&self) -> bool {
         self.get(self.shim.symbol_visible) != 0
+    }
+
+    /// Whether the Kconfig tools write the symbol to `.config` and
+    /// `autoconf.h`: it is visible or a default applies. One they do not
+    /// write has no value; `str_value` is the type's seed (`0` for an
+    /// `int`), not a setting.
+    pub fn written(&self) -> bool {
+        self.get(self.shim.symbol_written) != 0
     }
 
     /// The user value of a bool or tristate: 0, 1 or 2.
