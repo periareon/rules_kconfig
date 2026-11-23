@@ -72,6 +72,11 @@ struct kconfig_shim {
     /* Whether a `.config` can set the symbol: it has a prompt whose
      * condition holds (calculated). */
     int (*symbol_visible)(struct symbol* sym);
+    /* Whether the Kconfig tools write the symbol to `.config` and
+     * `autoconf.h`: it is visible or a default applies (calculated). A
+     * symbol they do not write has no value, whatever
+     * `symbol_str_value` returns. */
+    int (*symbol_written)(struct symbol* sym);
     /* The user value of a bool or tristate: 0, 1 or 2. */
     int (*symbol_user_tri)(struct symbol* sym);
     /* The user value of any other type. */

@@ -26,7 +26,7 @@ def _define(name, value, kconfig_type):
 
     Returns:
         tuple: The define's name, its value and whether it is unquoted, or
-            None when the setting defines nothing (`n`, an unset string).
+            None when the setting defines nothing (`n`).
     """
     if kconfig_type == None:
         # Older generated repositories do not record types.
@@ -57,8 +57,7 @@ def _define(name, value, kconfig_type):
             value = "0x" + value
         return (name, value, True)
     if kconfig_type == "string":
-        if not value:
-            return None
+        # Set to "" is set: the Kconfig tools write `#define CONFIG_X ""`.
         return (name, value, False)
     fail("Unknown Kconfig type for {}: {}".format(name, kconfig_type))
 
@@ -66,9 +65,12 @@ def _kconfig_autoconf_impl(ctx):
     define_results = {}
     unquoted = []
 
+    unset = {name: None for name in ctx.attr.unset}
     for setting in ctx.attr.settings:
         info = setting[BuildSettingInfo]
         name = setting.label.name
+        if name in unset:
+            continue
         value = info.value
         if type(value) not in ("bool", "int", "string"):
             fail("Unsupported build setting type for {}: {}".format(name, type(value)))
@@ -101,8 +103,10 @@ Reads Kconfig build setting flag values and produces CcAutoconfInfo for use with
 
 The defines follow the Kconfig tools' `autoconf.h`: `bool` and `tristate` `y`
 define `CONFIG_X 1`, `tristate` `m` defines `CONFIG_X_MODULE 1`, `int` and
-`hex` are unquoted (hex with its `0x` prefix), `string` is quoted, and `n` or
-an empty string defines nothing.
+`hex` are unquoted (hex with its `0x` prefix), `string` is quoted, an empty
+one included, and `n` defines nothing. Nor does a setting in `unset`: a
+symbol the configuration gives no value, as its dependencies are unmet, which
+the tools leave out of `autoconf.h` so that `#ifdef` can tell.
 """,
     implementation = _kconfig_autoconf_impl,
     attrs = {
@@ -113,6 +117,10 @@ an empty string defines nothing.
         "types": attr.string_dict(
             doc = "The Kconfig type of each setting (`bool`, `tristate`, `int`, `hex`, `string`), by `CONFIG_*` name. A setting without one is rendered by the look of its value.",
             default = {},
+        ),
+        "unset": attr.string_list(
+            doc = "The `CONFIG_*` names of settings the configuration gives no value, which define nothing. A build setting always has a value, so the generated repository lists the symbols the Kconfig tools would leave out of `autoconf.h` here.",
+            default = [],
         ),
     },
     provides = [CcAutoconfInfo],
