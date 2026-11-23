@@ -16,6 +16,14 @@
 #error "CONFIG_TRISTATE_MODULE should not be defined when defaulting to n"
 #endif
 
+/* An int whose `depends on` was unmet when the repository was generated has
+ * no value: undefined, not 0, so that `#ifdef` can fall back the way the
+ * kernel's headers do. Setting CONFIG_FOO on the command line, as .bazelrc
+ * does, does not resolve it again. */
+#ifdef CONFIG_DEPENDENT_COUNT
+#error "CONFIG_DEPENDENT_COUNT should not be defined: FOO was n when generated"
+#endif
+
 /* A compile-time check for any C compiler: _Static_assert where the language
  * is C11 or newer (MSVC only with /std:c11, so its default mode takes the other
  * branch), else a typedef whose array size is negative when the condition
@@ -34,5 +42,9 @@
  * "42" has sizeof 3, where an unquoted 42 would be sizeof(int). */
 KCONFIG_STATIC_ASSERT(sizeof(CONFIG_NUMERIC_STRING) == 3,
                       "CONFIG_NUMERIC_STRING should be the string \"42\"");
+
+/* A string set to "" is set, and defined as "". */
+KCONFIG_STATIC_ASSERT(sizeof(CONFIG_EMPTY) == 1,
+                      "CONFIG_EMPTY should be the string \"\"");
 
 int main(void) { return 0; }

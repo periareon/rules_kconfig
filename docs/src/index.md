@@ -177,8 +177,11 @@ cc_library(
 The header follows the Kconfig tools' `autoconf.h`: `bool` and `tristate`
 symbols set to `y` define `CONFIG_<name>` as `1`, a `tristate` set to `m`
 defines `CONFIG_<name>_MODULE` instead, `int` and `hex` values are unquoted,
-`string` values are quoted, and a symbol that is `n` or an empty string is left
-undefined.
+`string` values are quoted (an empty string is `""`), and a symbol that is `n`
+is left undefined. So is a symbol the configuration gives no value because its
+`depends on` is unmet: its flag still exists, with the falsey default of its
+type, but `config.h` leaves it out so that `#ifdef` tells it apart from one
+set to `0` or `""`, as the kernel's headers expect.
 
 ### Reacting to flags with `config_setting`
 

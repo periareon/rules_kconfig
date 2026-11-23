@@ -132,6 +132,10 @@ kconfig_autoconf(
         "CONFIG_PICK_A": "bool",
         "CONFIG_PICK_B": "bool",
     },
+    unset = [
+        "CONFIG_DRIVER_B",
+        "CONFIG_DRIVER_B_RANGE",
+    ],
     visibility = ["//visibility:public"],
 )
 
