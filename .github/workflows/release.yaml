@@ -75,9 +75,10 @@ jobs:
           echo "tag=${version}" >> $GITHUB_OUTPUT
 
   # The native builds of the parser, one per platform. The reusable workflow
-  # below downloads every artifact of the run into `artifacts/` before it
-  # runs `release_prep.sh`, which attaches them and bakes their integrities
-  # into the archive's module.bzl.
+  # below downloads every artifact of the run into the workspace root, as
+  # `kconfig_tool-<key>/kconfig_tool-<key>[.exe]`, before it runs
+  # `release_prep.sh`, which attaches them and bakes their integrities into
+  # the archive's module.bzl.
   binaries:
     needs: validation
     runs-on: ${{ matrix.os }}
@@ -111,20 +112,18 @@ jobs:
           $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
           echo "startup --output_user_root=$root" > ./user.bazelrc
         if: startswith(runner.os, 'Windows')
+      # `kconfig_tool_release` builds the tool in opt and publishes it as
+      # `kconfig_tool-<os>-<cpu>[.exe]`, named for the host as module.bzl's
+      # TOOL_URLS names it; `matrix.key` names only the artifact.
       - name: Build the native parser (Unix)
         if: startswith(runner.os, 'Windows') != true
-        run: |
-          bazel ${BAZEL_STARTUP_FLAGS[@]} build -c opt //kconfig/private/parser:kconfig_tool
-          cp "$(bazel ${BAZEL_STARTUP_FLAGS[@]} cquery -c opt --output=files //kconfig/private/parser:kconfig_tool)" "${RUNNER_TEMP}/kconfig_tool-${{ matrix.key }}"
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} run //kconfig/private/parser:kconfig_tool_release -- "${RUNNER_TEMP}"
       - name: Build the native parser (Windows)
         if: startswith(runner.os, 'Windows')
         shell: pwsh
         run: |
-          & bazel $env:BAZEL_STARTUP_FLAGS build -c opt //kconfig/private/parser:kconfig_tool
+          & bazel $env:BAZEL_STARTUP_FLAGS run //kconfig/private/parser:kconfig_tool_release -- "$env:RUNNER_TEMP"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $tool = & bazel $env:BAZEL_STARTUP_FLAGS cquery -c opt --output=files //kconfig/private/parser:kconfig_tool
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item $tool "$env:RUNNER_TEMP/kconfig_tool-${{ matrix.key }}.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: kconfig_tool-${{ matrix.key }}

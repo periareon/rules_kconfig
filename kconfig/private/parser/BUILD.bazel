@@ -1,6 +1,8 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_shared_library", "rust_test")
 load("//kconfig/private:versions.bzl", "PARSER_VERSIONS")
+load("//tools/release:defs.bzl", "release_artifact")
+load(":module.bzl", "MODULE_URL", "TOOL_URLS")
 load(":parser.bzl", "kconfig_parser_test", "kconfig_parsers", "kconfig_shim")
 
 # The parser the repository rules run: the Linux kernel's Kconfig parser of
@@ -81,6 +83,32 @@ rust_shared_library(
     )
     for version in PARSER_VERSIONS
 ]
+
+# The release assets, named as module.bzl names them: `bazel run` builds the
+# asset in opt and copies it into the directory given as the argument.
+# release_prep.sh runs the first; the `binaries` job of release.yaml runs
+# the second on each platform. Manual, as `//...` would otherwise build the
+# module on every platform CI tests on.
+release_artifact(
+    name = "kconfig_wasm_release",
+    src = ":kconfig_wasm",
+    out = MODULE_URL.rsplit("/", 1)[-1],
+    platform = "//tools/wasi_sdk:wasm32-wasip1",
+    tags = ["manual"],
+)
+
+release_artifact(
+    name = "kconfig_tool_release",
+    src = ":kconfig_tool",
+    out = select(
+        {
+            "//tools/constraints:" + key: url.rsplit("/", 1)[-1]
+            for key, url in TOOL_URLS.items()
+        },
+        no_match_error = "a release carries no native build for this platform; see TOOL_URLS of module.bzl",
+    ),
+    tags = ["manual"],
+)
 
 bzl_library(
     name = "bzl_lib",
