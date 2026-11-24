@@ -108,6 +108,10 @@ rules run the same program built natively for the host, with
 `repository_ctx.execute` under the same protocol. A release has native builds
 for Linux and Windows on x86_64 and aarch64 and for macOS on aarch64.
 
+`--repo_env=RULES_KCONFIG_USE_WASM=0` takes the native build where Bazel
+could run the module: interpreted, the module is many times slower than the
+native build, which on a large tree is minutes against a second.
+
 ### A source checkout
 
 A source checkout of `rules_kconfig` carries no builds. Name one with

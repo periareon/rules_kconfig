@@ -170,8 +170,10 @@ for the host, or the one `RULES_KCONFIG_TOOL` names.
         "wasm_module": attr.label(
             doc = """\
 The WebAssembly build of the parser (`kconfig.wasm`), used on Bazel 9.3 or
-newer with `--experimental_repository_ctx_execute_wasm`. The `kconfig` module
-extension provides the release's module, or the one `RULES_KCONFIG_WASM` names.
+newer with `--experimental_repository_ctx_execute_wasm`, unless
+`RULES_KCONFIG_USE_WASM=0` (through `--repo_env`) asks for the native build.
+The `kconfig` module extension provides the release's module, or the one
+`RULES_KCONFIG_WASM` names.
 """,
         ),
     },
