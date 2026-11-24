@@ -9,7 +9,8 @@ Bazel runs through `repository_ctx.execute`. Both are the same program and
 generate the same repository. The release bakes their URLs and integrities
 into `parser/module.bzl`, the `kconfig` extension downloads what the host can
 use into the `kconfig_parser` repository, and the repository rules take the
-module where Bazel can run it and the native build otherwise.
+module where Bazel can run it and the native build otherwise, or where
+`RULES_KCONFIG_USE_WASM=0` asks for it.
 
 The parser cannot read files, list directories, read the environment or run
 commands, so a repository is generated in rounds: this code reads the source
@@ -47,6 +48,17 @@ TOOL_ENV = "RULES_KCONFIG_TOOL"
 # The expected integrity of a native build named by a URL in
 # `RULES_KCONFIG_TOOL`; optional.
 TOOL_INTEGRITY_ENV = "RULES_KCONFIG_TOOL_INTEGRITY"
+
+# Whether to run the module where Bazel can: `0` (or `false`, `no`, `off`)
+# takes the native build instead, where there is one, as Bazel interprets
+# the module, which on a large tree is many times slower than the native
+# build. Unset or `1` runs the module. Read only where Bazel can run the
+# module; elsewhere the native build is the only one, and the variable is
+# not looked at. A value that is neither is a warning, and reads as unset.
+USE_WASM_ENV = "RULES_KCONFIG_USE_WASM"
+
+_TRUE = ("1", "true", "yes", "on")
+_FALSE = ("0", "false", "no", "off")
 
 _EXPORT = "run"
 _MEMORY_LIMIT = 512 * 1024 * 1024
@@ -189,14 +201,33 @@ kconfig_parser_repository = repository_rule(
     },
 )
 
+def _use_wasm(repository_ctx):
+    """Whether `RULES_KCONFIG_USE_WASM` allows the module; True when unset."""
+    value = _getenv(repository_ctx, USE_WASM_ENV)
+    if value == None or value.strip() == "" or value.strip().lower() in _TRUE:
+        return True
+    if value.strip().lower() in _FALSE:
+        return False
+
+    # buildifier: disable=print
+    print("{} is '{}', which is neither of {} nor of {}; the module is used as if it were unset".format(
+        USE_WASM_ENV,
+        value,
+        ", ".join(_TRUE),
+        ", ".join(_FALSE),
+    ))
+    return True
+
 def select_backend(repository_ctx):
     """Decide how to generate a repository.
 
     The WebAssembly module is used whenever Bazel can run it (Bazel 9.3 or
-    newer with `--experimental_repository_ctx_execute_wasm`) and there is one;
-    otherwise the native build, where there is one for the host. A release
-    carries both; `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name them for
-    a source checkout. Without either the repository cannot be generated.
+    newer with `--experimental_repository_ctx_execute_wasm`) and there is one,
+    unless `RULES_KCONFIG_USE_WASM=0` (through `--repo_env`) asks for the
+    native build; otherwise the native build, where there is one for the
+    host, and the variable is not read. A release carries both; `RULES_KCONFIG_WASM` and
+    `RULES_KCONFIG_TOOL` name them for a source checkout. Without either the
+    repository cannot be generated.
 
     Args:
         repository_ctx: The repository rule's context. Its rule has the
@@ -215,7 +246,9 @@ def select_backend(repository_ctx):
         repository_ctx.watch(path)
         return path
 
-    if hasattr(repository_ctx, "execute_wasm") and repository_ctx.attr.wasm_module:
+    can_run_module = hasattr(repository_ctx, "execute_wasm")
+    use_wasm = can_run_module and _use_wasm(repository_ctx)
+    if use_wasm and repository_ctx.attr.wasm_module:
         return struct(
             name = "wasm",
             module = watched(repository_ctx.attr.wasm_module),
@@ -227,8 +260,10 @@ def select_backend(repository_ctx):
             module = None,
             tool = watched(repository_ctx.attr.tool),
         )
-    if not hasattr(repository_ctx, "execute_wasm"):
+    if not can_run_module:
         module_reason = "Bazel does not expose `execute_wasm` (Bazel 9.3 or newer with `--experimental_repository_ctx_execute_wasm`)"
+    elif not use_wasm:
+        module_reason = "{}={} asks for the native build".format(USE_WASM_ENV, _getenv(repository_ctx, USE_WASM_ENV))
     else:
         module_reason = "this checkout of rules_kconfig carries no module (build one with `bazel build --config=wasm32 @rules_kconfig//kconfig/private/parser:kconfig_wasm` and name it with {})".format(MODULE_ENV)
     fail(
