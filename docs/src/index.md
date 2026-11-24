@@ -189,7 +189,9 @@ The generated repository includes a `settings/` subpackage with
 `config_setting` targets for every flag. Bool flags produce two targets:
 `CONFIG_<NAME>_Y` (matching `"true"`) and `CONFIG_<NAME>_N` (matching
 `"false"`). Int and string flags produce a target matching their Kconfig
-default value (named `CONFIG_<NAME>_<value>`).
+default value (named `CONFIG_<NAME>_<value>`; a character a target name may
+not hold, such as the `:` of U-Boot's `":auto"`, is `_` in the name, while
+the value matched is the value itself).
 
 Use these directly in `select()`:
 

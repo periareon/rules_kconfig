@@ -386,6 +386,17 @@ pub fn take() -> Option<Session> {
     SESSION.with(|current| current.borrow_mut().take())
 }
 
+/// Ok while the round has had every input the parser asked for, an error once
+/// it lacks one: entry.rs answers such a round with what it lacks, whatever
+/// else came of it, and the analysis of a parsed tree costs more than the
+/// parse under the interpreter Bazel runs the module with.
+pub fn complete_round() -> Result<(), String> {
+    if with(|session| session.host.pending()) {
+        return Err("the round lacks an input the parser asked for".to_string());
+    }
+    Ok(())
+}
+
 /// Look something up in the installed session.
 ///
 /// # Panics

@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,17 +85,66 @@ static void strings_push(struct strings* s, char* item) {
     s->items[s->len++] = item;
 }
 
-static bool strings_contains(const struct strings* s, const char* item) {
-    for (size_t i = 0; i < s->len; i++) {
-        if (strcmp(s->items[i], item) == 0) {
-            return true;
-        }
+/* -- A set of strings -------------------------------------------------------
+ * Membership for a `strings`, which keeps the order: open addressing on an
+ * FNV-1a hash. Walking the names opened so far on every open is quadratic
+ * in the files of a tree, which the interpreter Bazel runs the module under
+ * made visible. */
+
+struct string_set {
+    const char** slots;
+    size_t cap; /* a power of two, or 0 */
+    size_t len;
+};
+
+static uint32_t string_hash(const char* s) {
+    uint32_t h = 2166136261u;
+    for (; *s; s++) {
+        h = (h ^ (unsigned char)*s) * 16777619u;
     }
-    return false;
+    return h;
 }
 
-/* The Kconfig files opened while parsing. */
+static void string_set_grow(struct string_set* set) {
+    struct string_set grown = {NULL, set->cap ? set->cap * 2 : 64, 0};
+    grown.slots = calloc(grown.cap, sizeof(*grown.slots));
+    for (size_t i = 0; i < set->cap; i++) {
+        const char* item = set->slots[i];
+        if (item == NULL) {
+            continue;
+        }
+        size_t j = string_hash(item) & (grown.cap - 1);
+        while (grown.slots[j] != NULL) {
+            j = (j + 1) & (grown.cap - 1);
+        }
+        grown.slots[j] = item;
+        grown.len++;
+    }
+    free(set->slots);
+    *set = grown;
+}
+
+/* Adds `item`, which must outlive the set, unless an equal string is in it;
+ * whether it was added. */
+static bool string_set_add(struct string_set* set, const char* item) {
+    if ((set->len + 1) * 2 > set->cap) {
+        string_set_grow(set);
+    }
+    size_t i = string_hash(item) & (set->cap - 1);
+    while (set->slots[i] != NULL) {
+        if (strcmp(set->slots[i], item) == 0) {
+            return false;
+        }
+        i = (i + 1) & (set->cap - 1);
+    }
+    set->slots[i] = item;
+    set->len++;
+    return true;
+}
+
+/* The Kconfig files opened while parsing, in order and as a set. */
 static struct strings g_filenames;
+static struct string_set g_filename_set;
 
 /* -- In-memory files --------------------------------------------------------
  */
@@ -367,8 +417,14 @@ char* kconfig_host_strndup(const char* s, size_t n) {
  * (Windows) parses as the same tree with LF; the kernel's lexer would keep
  * the `\r` in a variable's value (`VERSION := $(shell,...)`). */
 static size_t strip_carriage_returns(char* data, size_t len) {
-    size_t out = 0;
-    for (size_t i = 0; i < len; i++) {
+    /* Most files have none; memchr finds the first a word at a time, where
+     * the loop below goes a byte at a time. */
+    const char* first = memchr(data, '\r', len);
+    if (first == NULL) {
+        return len;
+    }
+    size_t out = first - data;
+    for (size_t i = out; i < len; i++) {
         if (data[i] == '\r' && i + 1 < len && data[i + 1] == '\n') {
             continue;
         }
@@ -411,8 +467,11 @@ FILE* kconfig_host_fopen(const char* path, const char* mode) {
             path[prefix] == '/') {
             listed = path + prefix + 1;
         }
-        if (!strings_contains(&g_filenames, listed)) {
-            strings_push(&g_filenames, strdup(listed));
+        char* copy = strdup(listed);
+        if (string_set_add(&g_filename_set, copy)) {
+            strings_push(&g_filenames, copy);
+        } else {
+            free(copy);
         }
     }
     len = strip_carriage_returns(data, len);

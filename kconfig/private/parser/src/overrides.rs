@@ -128,6 +128,8 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
         kconf.load_config(text, true)?;
     }
 
+    ffi::complete_round()?;
+
     let filenames = kconf.kconfig_filenames();
     let cache = settings::read_source_files(&filenames, &srctree, |path| {
         ffi::with(|session| session.host.read(path)).ok()
