@@ -240,6 +240,9 @@ bytecode, which is several times faster than interpreting it.</p>
 rules run the same program built natively for the host, with
 <code>repository_ctx.execute</code> under the same protocol. A release has native builds
 for Linux and Windows on x86_64 and aarch64 and for macOS on aarch64.</p>
+<p><code>--repo_env=RULES_KCONFIG_USE_WASM=0</code> takes the native build where Bazel
+could run the module: interpreted, the module is many times slower than the
+native build, which on a large tree is minutes against a second.</p>
 <h3 id="a-source-checkout"><a class="header" href="#a-source-checkout">A source checkout</a></h3>
 <p>A source checkout of <code>rules_kconfig</code> carries no builds. Name one with
 <code>RULES_KCONFIG_WASM</code> or <code>RULES_KCONFIG_TOOL</code> through <code>--repo_env</code>: an
