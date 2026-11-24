@@ -53,10 +53,106 @@ rust.toolchain(
     edition = "2024",
     extra_target_triples = ["wasm32-wasip1"],
 )
+
+# The release's Linux builds of the parser link musl statically, so that one
+# build runs on any glibc, or none (see tools/platforms): Rust toolchains for
+# `*-unknown-linux-musl`, held to the `musl` constraint, from the hosts the
+# release and its developers build on (a set's second target names only
+# what differs; a set has no default version, so the one `rust.toolchain`
+# defaults to is named, and goes up with rules_rust). They are registered
+# ahead of the host's, which a musl platform satisfies as well, being Linux
+# on the same CPU; the host's platforms lack the constraint and never take
+# these.
+RUST_VERSION = "1.99.1"
+
+rust.repository_set(
+    name = "rust_linux_x86_64_musl",
+    edition = "2024",
+    exec_triple = "x86_64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        "//tools/platforms:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+rust.repository_set(
+    name = "rust_linux_x86_64_musl",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+        "//tools/platforms:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+)
+rust.repository_set(
+    name = "rust_linux_aarch64_musl",
+    edition = "2024",
+    exec_triple = "aarch64-unknown-linux-gnu",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        "//tools/platforms:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+rust.repository_set(
+    name = "rust_linux_aarch64_musl",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+        "//tools/platforms:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+)
+rust.repository_set(
+    name = "rust_macos_aarch64_musl",
+    edition = "2024",
+    exec_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        "//tools/platforms:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_VERSION],
+)
+rust.repository_set(
+    name = "rust_macos_aarch64_musl",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+        "//tools/platforms:musl",
+    ],
+    target_triple = "aarch64-unknown-linux-musl",
+)
 use_repo(rust, "rust_toolchains")
 
 register_toolchains(
+    "@rust_toolchains//:rust_linux_x86_64_musl__x86_64-unknown-linux-musl__stable",
+    "@rust_toolchains//:rust_linux_x86_64_musl__aarch64-unknown-linux-musl__stable",
+    "@rust_toolchains//:rust_linux_aarch64_musl__x86_64-unknown-linux-musl__stable",
+    "@rust_toolchains//:rust_linux_aarch64_musl__aarch64-unknown-linux-musl__stable",
+    "@rust_toolchains//:rust_macos_aarch64_musl__x86_64-unknown-linux-musl__stable",
+    "@rust_toolchains//:rust_macos_aarch64_musl__aarch64-unknown-linux-musl__stable",
     "@rust_toolchains//:all",
+    dev_dependency = True,
+)
+
+# The C toolchains for those platforms: musl's gcc, held to the `musl`
+# constraint so that the host's builds keep rules_cc's toolchain.
+bazel_dep(name = "toolchains_musl", version = "0.2.0", dev_dependency = True)
+
+toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl", dev_dependency = True)
+toolchains_musl.config(
+    extra_target_compatible_with = ["//tools/platforms:musl"],
+)
+use_repo(toolchains_musl, "musl_toolchains_hub")
+
+register_toolchains(
+    "@musl_toolchains_hub//:all",
     dev_dependency = True,
 )
 

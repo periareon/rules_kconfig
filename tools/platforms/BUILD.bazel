@@ -1,0 +1,32 @@
+# The C library a Linux build of the parser links. A release's Linux builds
+# link musl, statically, so that one build runs on any distribution: the BCR
+# tests on glibc 2.28 and 2.31, and a build against the runner's glibc wants
+# one at least as new. A platform without a value is the host's, glibc,
+# linked as rules_cc's toolchain links it; only `musl` selects the toolchains
+# of toolchains_musl and rules_rust's `*-unknown-linux-musl` (see
+# MODULE.bazel).
+constraint_setting(name = "libc")
+
+constraint_value(
+    name = "musl",
+    constraint_setting = ":libc",
+    visibility = ["//visibility:public"],
+)
+
+# The platforms the release builds the Linux binaries for, from any Linux
+# host or Apple Silicon (`//kconfig/private/parser:kconfig_tool_release_linux_<cpu>`).
+[
+    platform(
+        name = "linux-{}-musl".format(cpu),
+        constraint_values = [
+            "@platforms//os:linux",
+            "@platforms//cpu:" + cpu,
+            ":musl",
+        ],
+        visibility = ["//visibility:public"],
+    )
+    for cpu in [
+        "aarch64",
+        "x86_64",
+    ]
+]
