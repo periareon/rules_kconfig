@@ -78,7 +78,8 @@ jobs:
   # below downloads every artifact of the run into the workspace root, as
   # `kconfig_tool-<key>/kconfig_tool-<key>[.exe]`, before it runs
   # `release_prep.sh`, which attaches them and bakes their integrities into
-  # the archive's module.bzl.
+  # the archive's module.bzl. The Linux builds link musl statically and are
+  # cross-compiled (see tools/platforms), so both come from x86_64 runners.
   binaries:
     needs: validation
     runs-on: ${{ matrix.os }}
@@ -88,14 +89,19 @@ jobs:
         include:
           - os: macos-latest
             key: macos-aarch64
+            target: //kconfig/private/parser:kconfig_tool_release
           - os: ubuntu-24.04
             key: linux-x86_64
-          - os: ubuntu-24.04-arm
+            target: //kconfig/private/parser:kconfig_tool_release_linux_x86_64
+          - os: ubuntu-24.04
             key: linux-aarch64
+            target: //kconfig/private/parser:kconfig_tool_release_linux_aarch64
           - os: windows-2022
             key: windows-x86_64
+            target: //kconfig/private/parser:kconfig_tool_release
           # - os: windows-11-arm
           #   key: windows-aarch64
+          #   target: //kconfig/private/parser:kconfig_tool_release
     steps:
       - uses: actions/checkout@v4
       - uses: bazel-contrib/setup-bazel@0.14.0
@@ -112,21 +118,21 @@ jobs:
           $root = if (Test-Path "D:\") { "D:/bzl" } else { "C:/bzl" }
           echo "startup --output_user_root=$root" > ./user.bazelrc
         if: startswith(runner.os, 'Windows')
-      # `kconfig_tool_release` builds the tool in opt and publishes it as
-      # `kconfig_tool-<os>-<cpu>[.exe]`, named for the host as module.bzl's
+      # `matrix.target` builds the tool in opt and publishes it as
+      # `kconfig_tool-<os>-<cpu>[.exe]`, named for its platform as module.bzl's
       # TOOL_URLS names it; `matrix.key` names only the artifact.
       - name: Build the native parser (Unix)
         if: startswith(runner.os, 'Windows') != true
-        run: bazel ${BAZEL_STARTUP_FLAGS[@]} run //kconfig/private/parser:kconfig_tool_release -- "${RUNNER_TEMP}"
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} run ${{ matrix.target }} -- "${RUNNER_TEMP}"
       - name: Build the native parser (Windows)
         if: startswith(runner.os, 'Windows')
         shell: pwsh
         run: |
-          & bazel $env:BAZEL_STARTUP_FLAGS run //kconfig/private/parser:kconfig_tool_release -- "$env:RUNNER_TEMP"
+          & bazel $env:BAZEL_STARTUP_FLAGS run ${{ matrix.target }} -- "$env:RUNNER_TEMP"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      # The Linux builds link the C library in (see the `rustc_flags` of
-      # `kconfig_tool`); a build that needs the runner's glibc fails on any
-      # older one, as 0.7.0's did on every Linux platform the BCR tests on.
+      # The Linux builds link musl statically (see tools/platforms); a build
+      # that needs the runner's glibc fails on any older one, as 0.7.0's did
+      # on every Linux platform the BCR tests on.
       - name: Check the native parser is statically linked (Linux)
         if: runner.os == 'Linux'
         run: |

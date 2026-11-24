@@ -64,20 +64,12 @@ rust_test(
 rust_binary(
     name = "kconfig_tool",
     srcs = ["src/main.rs"],
-    # On Linux the C library is linked in, so that a release's build runs on
-    # any glibc and not only one as new as the runner's: the BCR tests on
-    # Ubuntu 20.04, Debian 10 and Rocky Linux 8 (glibc 2.31 and 2.28).
-    # rules_cc's toolchain links with gold where it is installed, which cannot
-    # link glibc's static archive, so bfd is named; and libc once more at the
-    # end, statically, since rules_rust lists the C parsers again after
-    # rustc's own `-lc`, which is where their members are pulled in.
+    # A musl build links statically, and a static link takes an archive's
+    # members where the archive is listed: rules_rust lists the C parsers
+    # again after rustc's own `-lc`, so libc is listed once more at the end,
+    # for the symbols only the parsers use.
     rustc_flags = select({
-        "@platforms//os:linux": [
-            "-Ctarget-feature=+crt-static",
-            "-Clink-arg=-fuse-ld=bfd",
-            "-Clink-arg=-Wl,-Bstatic",
-            "-Clink-arg=-lc",
-        ],
+        "//tools/platforms:musl": ["-Clink-arg=-lc"],
         "//conditions:default": [],
     }),
     visibility = ["//visibility:public"],
@@ -103,8 +95,10 @@ rust_shared_library(
 # The release assets, named as module.bzl names them: `bazel run` builds the
 # asset in opt and copies it into the directory given as the argument.
 # release_prep.sh runs the first; the `binaries` job of release.yaml runs
-# the second on each platform. Manual, as `//...` would otherwise build the
-# module on every platform CI tests on.
+# the second on macOS and Windows, for the host, and the Linux ones on a
+# Linux runner, for musl (see tools/platforms), so that one build runs on
+# any glibc. Manual, as `//...` would otherwise build the module on every
+# platform CI tests on.
 release_artifact(
     name = "kconfig_wasm_release",
     src = ":kconfig_wasm",
@@ -125,6 +119,20 @@ release_artifact(
     ),
     tags = ["manual"],
 )
+
+[
+    release_artifact(
+        name = "kconfig_tool_release_linux_" + cpu,
+        src = ":kconfig_tool",
+        out = TOOL_URLS["linux-" + cpu].rsplit("/", 1)[-1],
+        platform = "//tools/platforms:linux-{}-musl".format(cpu),
+        tags = ["manual"],
+    )
+    for cpu in [
+        "aarch64",
+        "x86_64",
+    ]
+]
 
 bzl_library(
     name = "bzl_lib",
