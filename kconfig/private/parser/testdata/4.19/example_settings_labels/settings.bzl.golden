@@ -27,7 +27,9 @@ def kconfig_config_settings(*, name, options = {}, visibility = None):
     ``{name}.{CONFIG_*}_N`` (matching ``"n"``).
     Non-bool/non-tristate flags use values from *options*, falling
     back to their Kconfig default when not specified, producing targets
-    named ``{name}.{CONFIG_*}_{value}``.  Flags with neither are
+    named ``{name}.{CONFIG_*}_{value}``, where the characters a target
+    name may not hold (``:``, ``\\``, space, backtick) are ``_``; the
+    ``flag_values`` match the value itself.  Flags with neither are
     skipped.
 
     Args:
@@ -74,7 +76,16 @@ def kconfig_config_settings(*, name, options = {}, visibility = None):
             values = [default]
         for value in values:
             native.config_setting(
-                name = name + "." + flag.name + "_" + str(value),
+                name = name + "." + flag.name + "_" + _target_name(str(value)),
                 flag_values = {flag: str(value)},
                 visibility = visibility,
             )
+
+# What a target name may not hold, of the characters a string symbol's value
+# may: U-Boot's `CONFIG_ENV_FAT_DEVICE_AND_PART=":auto"`.
+_UNNAMEABLE = [":", "\\", " ", "`"]
+
+def _target_name(value):
+    for ch in _UNNAMEABLE:
+        value = value.replace(ch, "_")
+    return value

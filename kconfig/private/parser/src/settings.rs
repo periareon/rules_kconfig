@@ -103,13 +103,52 @@ const BLOCK_STARTERS: &[&[u8]] = &[
     b"mainmenu",
 ];
 
-/// The lines of every Kconfig source, by filename as `kconfig_filenames`
-/// lists it.
-pub type SourceCache = BTreeMap<Vec<u8>, Vec<Vec<u8>>>;
+/// What the shell-taint scan needs of one line of a Kconfig source.
+#[derive(Debug, Default)]
+pub struct Line {
+    /// Whether the line starts a block: unindented, with one of
+    /// `BLOCK_STARTERS` as its first word. A symbol's definition runs from
+    /// its node to the next such line.
+    pub starts_block: bool,
+    /// The names of the line's `$(NAME` references.
+    pub references: Vec<Vec<u8>>,
+    /// The preprocessor variable the line assigns, if any, and the names its
+    /// value refers to.
+    pub assignment: Option<(Vec<u8>, Vec<Vec<u8>>)>,
+}
 
-/// Read every Kconfig source through `read`, which answers None for a file
-/// that cannot be read; such a file is left out, as the Python backend only
-/// warned about it.
+/// Every Kconfig source, scanned, by filename as `kconfig_filenames` lists
+/// it. Each line is scanned once, as the file is read: scanning the lines of
+/// each symbol's definition when the symbol came up, allocations and all,
+/// cost more than parsing the tree under the interpreter Bazel runs the
+/// module with.
+pub type SourceCache = BTreeMap<Vec<u8>, Vec<Line>>;
+
+/// Scan the text of one source.
+pub fn scan_source(content: &[u8]) -> Vec<Line> {
+    text::splitlines(content)
+        .into_iter()
+        .map(scan_line)
+        .collect()
+}
+
+fn scan_line(line: &[u8]) -> Line {
+    let stripped = text::lstrip(line);
+    let starts_block = !stripped.is_empty()
+        && stripped[0] != b'#'
+        && line[0] != b' '
+        && line[0] != b'\t'
+        && BLOCK_STARTERS.contains(&text::first_word(stripped));
+    Line {
+        starts_block,
+        references: text::macro_references(line),
+        assignment: text::variable_assignment(line),
+    }
+}
+
+/// Read and scan every Kconfig source through `read`, which answers None for
+/// a file that cannot be read; such a file is left out, as the Python
+/// backend only warned about it.
 pub fn read_source_files(
     filenames: &[Vec<u8>],
     srctree: &[u8],
@@ -123,25 +162,23 @@ pub fn read_source_files(
             paths::absolute(&paths::join(srctree, filename))
         };
         if let Some(content) = read(&path) {
-            let lines = text::splitlines(&content)
-                .into_iter()
-                .map(<[u8]>::to_vec)
-                .collect();
-            cache.insert(filename.clone(), lines);
+            cache.insert(filename.clone(), scan_source(&content));
         }
     }
     cache
 }
 
-/// The preprocessor variables whose value comes, possibly indirectly, from
-/// `$(shell,...)`: the sources are scanned for `VAR := $(shell,...)` and the
-/// like, since the parser holds `:=` values already expanded.
+/// The preprocessor variables whose value comes from `$(shell,...)`, directly
+/// or through another tainted variable, across every source.
 pub fn tainted_variables(cache: &SourceCache) -> BTreeSet<Vec<u8>> {
     let mut assigned: BTreeMap<Vec<u8>, BTreeSet<Vec<u8>>> = BTreeMap::new();
     for lines in cache.values() {
         for line in lines {
-            if let Some((name, references)) = text::variable_assignment(line) {
-                assigned.entry(name).or_default().extend(references);
+            if let Some((name, references)) = &line.assignment {
+                assigned
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(references.iter().cloned());
             }
         }
     }
@@ -172,31 +209,18 @@ pub fn is_shell_tainted(nodes: &[Node], cache: &SourceCache, tainted: &BTreeSet<
         if node.linenr < 1 {
             continue;
         }
-        let start = node.linenr as usize - 1;
+        let start = (node.linenr as usize - 1).min(lines.len());
         let mut end = start + 1;
-        while end < lines.len() {
-            let line = &lines[end];
-            let stripped = text::lstrip(line);
-            if stripped.is_empty() || stripped[0] == b'#' {
-                end += 1;
-                continue;
-            }
-            if line[0] != b' ' && line[0] != b'\t' {
-                let first_word = text::split_words(stripped)[0];
-                if BLOCK_STARTERS.contains(&first_word) {
-                    break;
-                }
-            }
+        while end < lines.len() && !lines[end].starts_block {
             end += 1;
         }
-        for line in &lines[start.min(lines.len())..end.min(lines.len())] {
-            let references = text::macro_references(line);
-            if references
+        let block = &lines[start..end.min(lines.len())];
+        if block.iter().any(|line| {
+            line.references
                 .iter()
                 .any(|r| r == b"shell" || tainted.contains(r))
-            {
-                return true;
-            }
+        }) {
+            return true;
         }
     }
     false
@@ -291,16 +315,23 @@ mod tests {
     fn cache(sources: &[(&str, &str)]) -> SourceCache {
         sources
             .iter()
-            .map(|(name, content)| {
-                (
-                    name.as_bytes().to_vec(),
-                    text::splitlines(content.as_bytes())
-                        .into_iter()
-                        .map(<[u8]>::to_vec)
-                        .collect(),
-                )
-            })
+            .map(|(name, content)| (name.as_bytes().to_vec(), scan_source(content.as_bytes())))
             .collect()
+    }
+
+    #[test]
+    fn scans_lines() {
+        let lines = scan_source(
+            b"config A\n\tdefault $(B) $(shell,x)\n  config C\n# config D\nE := $(F)\n",
+        );
+        let starts: Vec<bool> = lines.iter().map(|l| l.starts_block).collect();
+        assert_eq!(starts, [true, false, false, false, false]);
+        assert_eq!(lines[1].references, [b"B".to_vec(), b"shell".to_vec()]);
+        assert_eq!(
+            lines[4].assignment,
+            Some((b"E".to_vec(), vec![b"F".to_vec()]))
+        );
+        assert!(lines[0].assignment.is_none());
     }
 
     #[test]

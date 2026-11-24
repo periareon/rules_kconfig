@@ -54,13 +54,54 @@ fn starts_with_any<'a>(text: &[u8], table: &[&'a [u8]]) -> Option<&'a [u8]> {
     table.iter().copied().find(|item| text.starts_with(item))
 }
 
+/// The entries of `WHITESPACE` and `LINE_BOUNDARIES` that are one ASCII
+/// byte, as a set; the rest begin with a byte in `NON_ASCII_LEADS`. Most
+/// bytes are neither, and settle in one lookup instead of a walk of the
+/// table; the sources are scanned byte by byte, which under the interpreter
+/// Bazel runs the module with made the walk the cost of the scan.
+const fn byte_set(entries: &[&[u8]]) -> [bool; 128] {
+    let mut set = [false; 128];
+    let mut i = 0;
+    while i < entries.len() {
+        if entries[i].len() == 1 {
+            set[entries[i][0] as usize] = true;
+        }
+        i += 1;
+    }
+    set
+}
+
+const ASCII_WHITESPACE: [bool; 128] = byte_set(WHITESPACE);
+const ASCII_LINE_BOUNDARIES: [bool; 128] = byte_set(LINE_BOUNDARIES);
+const NON_ASCII_LEADS: &[u8] = &[0xc2, 0xe1, 0xe2, 0xe3];
+
+/// The whitespace `text` starts with, as `starts_with_any(text, WHITESPACE)`.
+fn whitespace_prefix(text: &[u8]) -> Option<&'static [u8]> {
+    match text.first() {
+        None => None,
+        Some(&b) if b < 0x80 && !ASCII_WHITESPACE[b as usize] => None,
+        Some(&b) if b >= 0x80 && !NON_ASCII_LEADS.contains(&b) => None,
+        _ => starts_with_any(text, WHITESPACE),
+    }
+}
+
+/// The line boundary `text` starts with, as `starts_with_any(text, LINE_BOUNDARIES)`.
+fn line_boundary_prefix(text: &[u8]) -> Option<&'static [u8]> {
+    match text.first() {
+        None => None,
+        Some(&b) if b < 0x80 && !ASCII_LINE_BOUNDARIES[b as usize] => None,
+        Some(&b) if b >= 0x80 && !NON_ASCII_LEADS.contains(&b) => None,
+        _ => starts_with_any(text, LINE_BOUNDARIES),
+    }
+}
+
 /// `text.splitlines()`.
 pub fn splitlines(text: &[u8]) -> Vec<&[u8]> {
     let mut lines = Vec::new();
     let mut start = 0;
     let mut i = 0;
     while i < text.len() {
-        if let Some(boundary) = starts_with_any(&text[i..], LINE_BOUNDARIES) {
+        if let Some(boundary) = line_boundary_prefix(&text[i..]) {
             lines.push(&text[start..i]);
             i += boundary.len();
             start = i;
@@ -78,7 +119,7 @@ pub fn splitlines(text: &[u8]) -> Vec<&[u8]> {
 pub fn lstrip(text: &[u8]) -> &[u8] {
     let mut i = 0;
     while i < text.len() {
-        match starts_with_any(&text[i..], WHITESPACE) {
+        match whitespace_prefix(&text[i..]) {
             Some(space) => i += space.len(),
             None => break,
         }
@@ -92,13 +133,23 @@ pub fn split_words(text: &[u8]) -> Vec<&[u8]> {
     let mut rest = lstrip(text);
     while !rest.is_empty() {
         let mut end = 0;
-        while end < rest.len() && starts_with_any(&rest[end..], WHITESPACE).is_none() {
+        while end < rest.len() && whitespace_prefix(&rest[end..]).is_none() {
             end += 1;
         }
         words.push(&rest[..end]);
         rest = lstrip(&rest[end..]);
     }
     words
+}
+
+/// The first word of `text.split()`; empty where there is none.
+pub fn first_word(text: &[u8]) -> &[u8] {
+    let rest = lstrip(text);
+    let mut end = 0;
+    while end < rest.len() && whitespace_prefix(&rest[end..]).is_none() {
+        end += 1;
+    }
+    &rest[..end]
 }
 
 /// `text.rstrip("\n")`.
@@ -134,7 +185,7 @@ pub fn macro_references(text: &[u8]) -> Vec<Vec<u8>> {
     while i + 1 < text.len() {
         if text[i] == b'$' && text[i + 1] == b'(' {
             let mut start = i + 2;
-            while let Some(space) = starts_with_any(&text[start..], WHITESPACE) {
+            while let Some(space) = whitespace_prefix(&text[start..]) {
                 start += space.len();
             }
             let mut end = start;
