@@ -17,7 +17,6 @@
 //! --env-file NAME=RLOCATIONPATH  a variable whose value is the file's path
 //! ```
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -80,44 +79,12 @@ fn runfile(runfiles: &Runfiles, rlocationpath: &str) -> Result<PathBuf, String> 
     Ok(path)
 }
 
-/// A path without the `\\?\` prefix `canonicalize` gives on Windows, which
-/// the C runtime `mconf` opens files with does not take.
-#[cfg(windows)]
-fn plain(path: PathBuf) -> PathBuf {
-    let text = path.to_string_lossy();
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
-        _ => path,
-    }
-}
-
-#[cfg(not(windows))]
-fn plain(path: PathBuf) -> PathBuf {
-    path
-}
-
-/// The path with symlinks resolved, like Python's `os.path.realpath`: the
-/// longest prefix that exists is canonicalized and the rest appended, so
-/// that a `.config` that is yet to be written resolves too.
-fn realpath(path: &Path) -> PathBuf {
-    let mut existing = path.to_path_buf();
-    let mut rest: Vec<OsString> = Vec::new();
-    loop {
-        if let Ok(real) = std::fs::canonicalize(&existing) {
-            let mut out = real;
-            for component in rest.iter().rev() {
-                out.push(component);
-            }
-            return plain(out);
-        }
-        match (existing.file_name(), existing.parent()) {
-            (Some(name), Some(parent)) => {
-                rest.push(name.to_os_string());
-                existing = parent.to_path_buf();
-            }
-            _ => return path.to_path_buf(),
-        }
-    }
+/// Whether a workspace-relative path stays inside the workspace, lexically:
+/// relative, and without `..`. Nothing is resolved through symlinks.
+fn is_within_workspace(path: &Path) -> bool {
+    use std::path::Component;
+    path.components()
+        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
 }
 
 #[cfg(unix)]
@@ -155,15 +122,13 @@ pub fn run() -> Result<ExitCode, String> {
         .map_err(|error| format!("reading {}: {error}", args_file.display()))?;
     let args = parse(&content).map_err(|error| format!("{}: {error}", args_file.display()))?;
 
-    let config = realpath(&workspace.join(&args.config));
-    let real_workspace = realpath(&workspace);
-    if !config.starts_with(&real_workspace) {
+    if !is_within_workspace(Path::new(&args.config)) {
         return Err(format!(
-            "the config file must be within the root module's workspace directory.\n  config resolves to: {}\n  workspace root:     {}",
-            config.display(),
-            real_workspace.display()
+            "the config file must be a relative path inside the root module's workspace, without `..`: {}",
+            args.config
         ));
     }
+    let config = workspace.join(&args.config);
     // An existing file only: the rule edits a file of the workspace, and a
     // path that names none is a mistake, not a file to create.
     if !config.is_file() {
@@ -173,7 +138,13 @@ pub fn run() -> Result<ExitCode, String> {
         ));
     }
 
+    // The tree is the library's files in the runfiles, the root's directory
+    // among them; a tree's scripts are there when the library lists them.
     let kconfig = runfile(&runfiles, &args.kconfig)?;
+    let srctree = kconfig
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("{} has no directory", kconfig.display()))?;
     let mconf = runfile(&runfiles, &args.mconf)?;
     let mut command = Command::new(&mconf);
     command.arg(&kconfig);
@@ -184,13 +155,11 @@ pub fn run() -> Result<ExitCode, String> {
         command.env(name, runfile(&runfiles, rlocationpath)?);
     }
     command.env("KCONFIG_CONFIG", &config);
-    // The directory of the root Kconfig, in the runfiles tree, where the
-    // library's files are: what `source` and `$(shell,...)` run against.
-    let srctree = kconfig
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| format!("{} has no directory", kconfig.display()))?;
-    command.env("srctree", srctree);
+    // The tree's directory is `$(srctree)`, and the working directory, as
+    // the repository rule runs the tree's commands: a command may name a
+    // script relative to it.
+    command.env("srctree", &srctree);
+    command.current_dir(&srctree);
     exec(command)
 }
 
@@ -212,6 +181,19 @@ mod tests {
             args.env_files,
             vec![("CC".to_string(), "t/gcc".to_string())]
         );
+    }
+
+    #[test]
+    fn a_config_stays_in_the_workspace_lexically() {
+        use super::is_within_workspace;
+        use std::path::Path;
+        assert!(is_within_workspace(Path::new(".config")));
+        assert!(is_within_workspace(Path::new("configs/./dev.config")));
+        assert!(!is_within_workspace(Path::new("../outside.config")));
+        assert!(!is_within_workspace(Path::new(
+            "configs/../../outside.config"
+        )));
+        assert!(!is_within_workspace(Path::new("/etc/config")));
     }
 
     #[test]
