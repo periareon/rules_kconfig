@@ -676,8 +676,39 @@ static int kconfig_shim_load_config(const char* text, size_t len) {
     return conf_read(CONFIG_NAME);
 }
 
-static const char* kconfig_shim_config_contents(size_t* len) {
-    if (conf_write(OUTPUT_NAME) != 0) {
+int kconfig_host_write_invisible = 0;
+
+/* A symbol `conf_write` leaves out, as BusyBox's kconfig writes it: not
+ * set, or the empty value of the type (`""`, `0`; a `hex` has none, and its
+ * line is empty too). It has no value of its own, as a symbol is written as
+ * soon as a prompt, a default or a `select` applies; one without a type is
+ * no symbol of the repository, and is left out still. */
+void kconfig_host_write_unset(FILE* out, struct symbol* sym) {
+    switch (sym->type) {
+        case S_BOOLEAN:
+        case S_TRISTATE:
+            kconfig_host_fprintf(out, "# CONFIG_%s is not set\n", sym->name);
+            break;
+        case S_INT:
+            kconfig_host_fprintf(out, "CONFIG_%s=0\n", sym->name);
+            break;
+        case S_HEX:
+            kconfig_host_fprintf(out, "CONFIG_%s=\n", sym->name);
+            break;
+        case S_STRING:
+            kconfig_host_fprintf(out, "CONFIG_%s=\"\"\n", sym->name);
+            break;
+        default:
+            break;
+    }
+}
+
+static const char* kconfig_shim_config_contents(size_t* len,
+                                                int write_invisible) {
+    kconfig_host_write_invisible = write_invisible;
+    int failed = conf_write(OUTPUT_NAME) != 0;
+    kconfig_host_write_invisible = 0;
+    if (failed) {
         return NULL;
     }
     struct memfile* f = memfile_find(OUTPUT_NAME);

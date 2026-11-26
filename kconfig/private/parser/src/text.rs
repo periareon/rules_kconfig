@@ -153,6 +153,22 @@ pub fn first_word(text: &[u8]) -> &[u8] {
 }
 
 /// `text.rstrip("\n")`.
+/// The text with `\r\n` as `\n`, as the shim reads a file: the line ending
+/// a shell on Windows writes is not part of a command's answer.
+pub fn crlf_to_lf(text: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if text[i] == b'\r' && text.get(i + 1) == Some(&b'\n') {
+            i += 1;
+            continue;
+        }
+        out.push(text[i]);
+        i += 1;
+    }
+    out
+}
+
 pub fn rstrip_newlines(text: &[u8]) -> &[u8] {
     let mut end = text.len();
     while end > 0 && text[end - 1] == b'\n' {

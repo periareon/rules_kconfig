@@ -12,7 +12,7 @@ runs the native build against the goldens of `testdata/<version>`.
 
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@rules_venv//python/pytest:defs.bzl", "py_pytest_test")
+load("@rules_rust//rust:defs.bzl", "rust_test")
 load("//kconfig/private:versions.bzl", "version_id")
 load("//kconfig/private/parser/kernel:repository.bzl", "kernel_kconfig_repository_name")
 
@@ -99,18 +99,24 @@ def kconfig_parsers(name, versions):
     )
 
 def kconfig_parser_test(version):
-    """The native build against the goldens of one release; see parser_test.py.
+    """The native build against the goldens of one release; see parser_test.rs.
 
     Args:
         version: One of `PARSER_VERSIONS`.
     """
-    py_pytest_test(
+    rust_test(
         name = "parser_test_" + version_id(version),
-        srcs = ["parser_test.py"],
+        size = "small",
+        srcs = ["parser_test.rs"],
         data = [":kconfig_tool"] + native.glob(["testdata/{}/**".format(version)]),
         env = {
+            # A file of the version's testdata: the test takes the directory.
+            "KCONFIG_TESTDATA": "$(rlocationpath testdata/{}/plain/rendered.config.golden)".format(version),
             "KCONFIG_TOOL": "$(rlocationpath :kconfig_tool)",
             "KCONFIG_VERSION": version,
         },
-        deps = ["@rules_venv//python/runfiles"],
+        deps = [
+            "@crates//:serde_json",
+            "@rules_rust//rust/runfiles",
+        ],
     )

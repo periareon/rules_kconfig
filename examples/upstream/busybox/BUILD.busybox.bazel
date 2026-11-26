@@ -1,0 +1,60 @@
+# The BusyBox tree as this example reads it: the Config.in files, the configs
+# it carries, and BusyBox's own `scripts/kconfig/conf` built from the tree.
+# BusyBox's kconfig is the kernel's of 2.6.2x, and the tree ships the
+# generated parser (`zconf.tab.c_shipped`, which includes `lex.zconf.c`,
+# `zconf.hash.c` and the other sources), which scripts/kconfig/Makefile
+# copies to its name and compiles with conf.c.
+
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Config.in"] + glob(["configs/*"]))
+
+# Every Config.in: the root, and the ones scripts/gen_build_files.sh wrote
+# from the sources' `//config:` lines when the archive was extracted (see
+# MODULE.bazel).
+filegroup(
+    name = "kconfig_files",
+    srcs = glob(["**/Config.in"]),
+)
+
+[
+    copy_file(
+        name = shipped.replace(".", "_"),
+        src = "scripts/kconfig/{}_shipped".format(shipped),
+        out = "scripts/kconfig/" + shipped,
+    )
+    for shipped in [
+        "zconf.tab.c",
+        "lex.zconf.c",
+        "zconf.hash.c",
+    ]
+]
+
+cc_library(
+    name = "kconfig",
+    srcs = [":zconf_tab_c"],
+    hdrs = glob(["scripts/kconfig/*.h"]),
+    # What scripts/kconfig/check.sh adds where there is no libintl; the
+    # messages only.
+    copts = ["-DKBUILD_NO_NLS"],
+    includes = ["scripts/kconfig"],
+    textual_hdrs = [
+        "scripts/kconfig/confdata.c",
+        "scripts/kconfig/expr.c",
+        "scripts/kconfig/menu.c",
+        "scripts/kconfig/symbol.c",
+        "scripts/kconfig/util.c",
+        ":lex_zconf_c",
+        ":zconf_hash_c",
+    ],
+)
+
+cc_binary(
+    name = "conf",
+    srcs = ["scripts/kconfig/conf.c"],
+    copts = ["-DKBUILD_NO_NLS"],
+    deps = [":kconfig"],
+)

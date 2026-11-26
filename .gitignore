@@ -3,5 +3,3 @@
 bazel-*
 user.bazelrc
 /*venv*/
-__pycache__
-*.pyc

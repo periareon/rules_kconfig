@@ -236,6 +236,20 @@ impl Host {
         )
     }
 
+    /// What the `$(shell,...)` commands answered so far, by command, for the
+    /// manifest to keep: the output as text, with the `\r\n` of a shell on
+    /// Windows as `\n`, so that a manifest reads the same on every host.
+    pub fn shell_answers(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        self.shell_results
+            .iter()
+            .filter_map(|(command, result)| {
+                result
+                    .as_ref()
+                    .map(|result| (command.clone(), text::crlf_to_lf(&result.stdout)))
+            })
+            .collect()
+    }
+
     /// Whether this round asked for anything it did not have.
     pub fn pending(&self) -> bool {
         !self.pending.files.is_empty()
@@ -345,5 +359,19 @@ mod tests {
         let mut host = Host::new(&request);
         assert_eq!(host.shell(b"echo").unwrap(), b"a b");
         assert_eq!(host.shell(b"other"), None);
+    }
+
+    #[test]
+    fn shell_answers_are_recorded_as_text() {
+        let request = Request::parse(
+            br#"{"shell": {"echo": {"stdout": "a\r\nb\r\n", "stderr": "", "return_code": 0}}}"#,
+        )
+        .unwrap();
+        let mut host = Host::new(&request);
+        assert_eq!(host.shell(b"echo").unwrap(), b"a b");
+        assert_eq!(
+            host.shell_answers(),
+            vec![(b"echo".to_vec(), b"a\nb\n".to_vec())]
+        );
     }
 }

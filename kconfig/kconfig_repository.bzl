@@ -12,6 +12,14 @@ load(
 load("//kconfig/private:versions.bzl", "DEFAULT_KCONFIG_VERSION", "PARSER_VERSIONS", "parser_version")
 
 def _config_ws_path(label):
+    """The path of a `.config` for the generated `menuconfig`, or None.
+
+    `menuconfig` edits a file of the root module's workspace only, where the
+    launcher resolves `config`; a file of another repository gets no target,
+    rather than one that would edit a file of the same name in the root.
+    """
+    if label.repo_name != "":
+        return None
     return (label.package + "/" + label.name).lstrip("/")
 
 def _generate_with_parser(repository_ctx, backend, kconfig, repo_name):
@@ -37,6 +45,7 @@ def _generate_with_parser(repository_ctx, backend, kconfig, repo_name):
         name: list(values)
         for name, values in repository_ctx.attr.settings_options.items()
     }
+    request["write_invisible"] = repository_ctx.attr.write_invisible
     if repository_ctx.attr.defaults:
         defaults = repository_ctx.path(repository_ctx.attr.defaults)
         request["defaults"] = str(defaults)
@@ -136,7 +145,7 @@ toolchain Bazel would pick for a platform.
 The kernel release the tree is written for: `{default}` (the default), `6.12.7`,
 `4.19`. Kconfig has no version of its own, so this is the release of the
 kernel tree, or the one a project's copy of `scripts/kconfig` was synced
-from (U-Boot: `4.19`). The tree is parsed and resolved as that release's
+from. The tree is parsed and resolved as that release's
 `conf` would, by the newest parser rules_kconfig builds at or below the
 version ({parsers}); a version below the oldest is an error. The version is
 recorded in the manifest, and the overrides layered on the repository use
@@ -175,6 +184,14 @@ newer with `--experimental_repository_ctx_execute_wasm`, unless
 The `kconfig` module extension provides the release's module, or the one
 `RULES_KCONFIG_WASM` names.
 """,
+        ),
+        "write_invisible": attr.bool(
+            doc = """\
+Write the symbols the configuration makes invisible too, to `rendered.config`
+as `# CONFIG_X is not set` or with the type's empty value, each in its place,
+and to `config.h` as that value, for sources that expect a `CONFIG_X` for
+every symbol, as BusyBox's do; the kernel's tools leave them out.""",
+            default = False,
         ),
     },
 )

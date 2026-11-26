@@ -5,6 +5,7 @@
 # BUILD.linux_kconfig_legacy.bazel.
 load("@bison//:bison.bzl", "bison")
 load("@flex//:flex.bzl", "flex")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 # The command lines of the kernel's build (scripts/Makefile.lib, `cmd_bison`
@@ -96,4 +97,80 @@ cc_library(
         "@platforms//os:windows": ["@rules_kconfig//kconfig/private/parser/kernel:compat_windows"],
         "//conditions:default": [],
     }),
+)
+
+# mconf, the kernel's menuconfig, over the parser as released (mconf/,
+# unpatched): zconf.y includes the lexer and the other sources, one
+# translation unit, as the kernel compiles it. See the 6.12 BUILD file.
+bison(
+    name = "menuconfig/zconf.tab",
+    srcs = ["menuconfig/zconf.y"],
+    outs = [
+        "menuconfig/zconf.tab.c",
+        "menuconfig/zconf.tab.h",
+    ],
+    args = [
+        "-o",
+        "$(execpath menuconfig/zconf.tab.c)",
+        "--defines=$(execpath menuconfig/zconf.tab.h)",
+        "-t",
+        "-l",
+        "$(execpath menuconfig/zconf.y)",
+    ],
+)
+
+flex(
+    name = "menuconfig/zconf.lex",
+    srcs = ["menuconfig/zconf.l"],
+    outs = ["menuconfig/zconf.lex.c"],
+    args = [
+        "-o",
+        "$(execpath menuconfig/zconf.lex.c)",
+        "-L",
+        "$(execpath menuconfig/zconf.l)",
+    ],
+)
+
+cc_library(
+    name = "mconf_parser",
+    srcs = [":menuconfig/zconf.tab"],
+    hdrs = glob(["menuconfig/*.h"]),
+    copts = ["-DYYDEBUG=1"],
+    includes = ["menuconfig"],
+    # mconf is a curses program over POSIX (unistd.h, termios): not for
+    # Windows, where a `menuconfig` is incompatible and `//...` skips it.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    # What zconf.y includes.
+    textual_hdrs = [
+        "menuconfig/confdata.c",
+        "menuconfig/expr.c",
+        "menuconfig/kconf_id.c",
+        "menuconfig/menu.c",
+        "menuconfig/preprocess.c",
+        "menuconfig/symbol.c",
+        "menuconfig/util.c",
+        ":menuconfig/zconf.lex",
+    ],
+)
+
+cc_binary(
+    name = "mconf",
+    srcs = glob([
+        "menuconfig/lxdialog/*.c",
+        "menuconfig/lxdialog/*.h",
+    ]) + ["menuconfig/mconf.c"],
+    # mconf is a curses program over POSIX (unistd.h, termios): not for
+    # Windows, where a `menuconfig` is incompatible and `//...` skips it.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":mconf_parser",
+        "@ncurses",
+    ],
 )

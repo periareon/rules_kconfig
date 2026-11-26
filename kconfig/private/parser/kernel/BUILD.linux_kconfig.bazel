@@ -5,6 +5,7 @@
 # BUILD.linux_kconfig.bazel.
 load("@bison//:bison.bzl", "bison")
 load("@flex//:flex.bzl", "flex")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 # The command lines of the kernel's build (scripts/Makefile.lib, `cmd_bison`
@@ -99,4 +100,89 @@ cc_library(
         "@platforms//os:windows": ["@rules_kconfig//kconfig/private/parser/kernel:compat_windows"],
         "//conditions:default": [],
     }),
+)
+
+# mconf, the kernel's menuconfig: scripts/kconfig/mconf.c over the lxdialog
+# widgets and the parser as released (menuconfig/, unpatched), linked with the
+# registry's ncurses; `menuconfig` runs it on the machine `bazel run` is
+# on. scripts/kconfig/Makefile's mconf-cfg.sh asks pkg-config for the
+# curses flags; here they are the ncurses module's.
+bison(
+    name = "menuconfig/parser.tab",
+    srcs = ["menuconfig/parser.y"],
+    outs = [
+        "menuconfig/parser.tab.c",
+        "menuconfig/parser.tab.h",
+    ],
+    args = [
+        "-o",
+        "$(execpath menuconfig/parser.tab.c)",
+        "--defines=$(execpath menuconfig/parser.tab.h)",
+        "-t",
+        "-l",
+        "$(execpath menuconfig/parser.y)",
+    ],
+)
+
+flex(
+    name = "menuconfig/lexer.lex",
+    srcs = ["menuconfig/lexer.l"],
+    outs = ["menuconfig/lexer.lex.c"],
+    args = [
+        "-o",
+        "$(execpath menuconfig/lexer.lex.c)",
+        "-L",
+        "$(execpath menuconfig/lexer.l)",
+    ],
+)
+
+cc_library(
+    name = "mconf_parser",
+    srcs = [
+        "menuconfig/confdata.c",
+        "menuconfig/expr.c",
+        "menuconfig/menu.c",
+        "menuconfig/preprocess.c",
+        "menuconfig/symbol.c",
+        "menuconfig/util.c",
+        ":menuconfig/lexer.lex",
+        ":menuconfig/parser.tab",
+    ],
+    hdrs = glob([
+        "menuconfig/*.h",
+        "menuconfig/include/*.h",
+    ]),
+    copts = ["-DYYDEBUG=1"],
+    includes = [
+        "menuconfig",
+        "menuconfig/include",
+    ],
+    # mconf is a curses program over POSIX (unistd.h, termios): not for
+    # Windows, where a `menuconfig` is incompatible and `//...` skips it.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_binary(
+    name = "mconf",
+    srcs = glob([
+        "menuconfig/lxdialog/*.c",
+        "menuconfig/lxdialog/*.h",
+    ]) + [
+        "menuconfig/mconf.c",
+        "menuconfig/mnconf-common.c",
+    ],
+    # mconf is a curses program over POSIX (unistd.h, termios): not for
+    # Windows, where a `menuconfig` is incompatible and `//...` skips it.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":mconf_parser",
+        "@ncurses",
+    ],
 )

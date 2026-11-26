@@ -1,4 +1,4 @@
-"""Example: the Kconfig trees of Linux and U-Boot, checked against their own `conf`."""
+"""Example: the Kconfig trees of Linux, U-Boot and BusyBox, checked against their own `conf`."""
 
 module(
     name = "rules_kconfig_example_upstream",
@@ -8,6 +8,7 @@ module(
 bazel_dep(name = "rules_kconfig", version = "0.0.1")
 bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "rules_cc", version = "0.2.9")
+bazel_dep(name = "rules_shell", version = "0.6.1")
 
 # Each tree's own `scripts/kconfig/conf` is built from the tree as the oracle
 # the generated repositories are compared with; its parser is generated with
@@ -23,7 +24,7 @@ local_path_override(
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
-    name = "linux",
+    name = "linux_src",
     build_file = "//linux:BUILD.linux.bazel",
     sha256 = "b1a2562be56e42afb3f8489d4c2a7ac472ac23098f1ef1c1e40da601f54625eb",
     strip_prefix = "linux-6.12",
@@ -31,11 +32,24 @@ http_archive(
 )
 
 http_archive(
-    name = "u_boot",
+    name = "u_boot_src",
     build_file = "//uboot:BUILD.u_boot.bazel",
     sha256 = "5414ee86562abc5ed524c6dc5e092511ad281441020a88e7027de6e83fd16116",
     strip_prefix = "u-boot-2025.10",
     urls = ["https://github.com/u-boot/u-boot/archive/refs/tags/v2025.10.tar.gz"],
+)
+
+# BusyBox's Config.in files but the root are generated: scripts/gen_build_files.sh
+# writes each from the directory's Config.src and the `//config:` lines of
+# its sources, as `make` does before it configures. The archive carries the
+# sources, so the script runs on extraction.
+http_archive(
+    name = "busybox_src",
+    build_file = "//busybox:BUILD.busybox.bazel",
+    patch_cmds = ["scripts/gen_build_files.sh . ."],
+    sha256 = "3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4",
+    strip_prefix = "busybox-1.37.0",
+    urls = ["https://busybox.net/downloads/busybox-1.37.0.tar.bz2"],
 )
 
 # What each tree's Makefile exports to Kconfig; linux/env.bzl and
@@ -53,11 +67,11 @@ LINUX_ENV = {
 # The tools the probes run, as files: a toolchain repository's binaries would
 # go here the same way (`"@llvm_toolchain_llvm//:bin/clang": "CC"`).
 LINUX_TOOLS = {
-    "@linux//:scripts/dummy-tools/gcc": "CC",
-    "@linux//:scripts/dummy-tools/ld": "LD",
-    "@linux//:scripts/dummy-tools/nm": "NM",
-    "@linux//:scripts/dummy-tools/objcopy": "OBJCOPY",
-    "@linux//:scripts/dummy-tools/pahole": "PAHOLE",
+    "@linux_src//:scripts/dummy-tools/gcc": "CC",
+    "@linux_src//:scripts/dummy-tools/ld": "LD",
+    "@linux_src//:scripts/dummy-tools/nm": "NM",
+    "@linux_src//:scripts/dummy-tools/objcopy": "OBJCOPY",
+    "@linux_src//:scripts/dummy-tools/pahole": "PAHOLE",
 }
 
 U_BOOT_ENV = {
@@ -69,30 +83,37 @@ U_BOOT_ENV = {
 
 kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 
-# Linux: `make x86_64_defconfig`, `make ARCH=arm64 defconfig` and
-# `make alldefconfig`. The defconfigs are the kernel's, with the symbols a
-# defaults file has to decide added (see linux/configs).
+# One repository per tree, as the tree's own module would declare it: the
+# tree with every symbol at its default (`make alldefconfig`; BusyBox's
+# `make defconfig`), and the configurations a consumer builds as
+# `kconfig.overrides` layered on it, each from a defconfig. An overrides
+# repository parses the tree again with the base's variables,
+# `kconfig_version` and `write_invisible`, which its manifest records, so
+# its `rendered.config` is compared with `make <defconfig>` the same way,
+# and its `:config` is the base's `config.h` under the transition.
+
+# Linux: the architecture is the tree's variables (`ARCH`, `SRCARCH`), read
+# before any `.config`, which an overrides cannot change; so each
+# architecture is a base. `make x86_64_defconfig` is an overrides over the
+# x86 base; arm64 is a repository with `defaults`, the other way there. The
+# defconfigs are the kernel's, with the symbols a defaults file has to decide
+# added (see linux/configs).
 kconfig.repo(
-    name = "linux_x86_64",
-    defaults = "//linux:configs/x86_64_defconfig",
+    name = "linux_x86",
     env = LINUX_ENV | {
         "ARCH": "x86",
         "SRCARCH": "x86",
     },
     env_labels = LINUX_TOOLS,
-    kconfig = "@linux//:Kconfig",
+    kconfig = "@linux_src//:Kconfig",
     # In config.h, the compiler Bazel's C++ toolchain resolved, not the
     # variable the probes ran with (see linux/BUILD.bazel).
     settings_labels = {"//linux:cc_path": "CONFIG_CC_VERSION_TEXT"},
 )
-kconfig.repo(
-    name = "linux_x86_64_alldefconfig",
-    env = LINUX_ENV | {
-        "ARCH": "x86",
-        "SRCARCH": "x86",
-    },
-    env_labels = LINUX_TOOLS,
-    kconfig = "@linux//:Kconfig",
+kconfig.overrides(
+    name = "linux_x86_64",
+    config = "//linux:configs/x86_64_defconfig",
+    kconfig = "@linux_x86//:linux_x86",
 )
 kconfig.repo(
     name = "linux_arm64",
@@ -102,38 +123,63 @@ kconfig.repo(
         "SRCARCH": "arm64",
     },
     env_labels = LINUX_TOOLS,
-    kconfig = "@linux//:Kconfig",
+    kconfig = "@linux_src//:Kconfig",
 )
 
-# U-Boot: two boards' defconfigs as the tree carries them, and `alldefconfig`.
+# U-Boot: the tree, and two boards' defconfigs as the tree carries them.
 # U-Boot's `scripts/kconfig` is the kernel's of 4.19 (its tree still has
 # `---help---` and `optional` choices), so that is the version named.
 kconfig.repo(
+    name = "u_boot",
+    env = U_BOOT_ENV,
+    kconfig = "@u_boot_src//:Kconfig",
+    kconfig_version = "4.19",
+)
+kconfig.overrides(
     name = "u_boot_qemu_arm64",
-    defaults = "@u_boot//:configs/qemu_arm64_defconfig",
-    env = U_BOOT_ENV,
-    kconfig = "@u_boot//:Kconfig",
-    kconfig_version = "4.19",
+    config = "@u_boot_src//:configs/qemu_arm64_defconfig",
+    kconfig = "@u_boot//:u_boot",
 )
-kconfig.repo(
+kconfig.overrides(
     name = "u_boot_qemu_x86_64",
-    defaults = "@u_boot//:configs/qemu-x86_64_defconfig",
-    env = U_BOOT_ENV,
-    kconfig = "@u_boot//:Kconfig",
-    kconfig_version = "4.19",
+    config = "@u_boot_src//:configs/qemu-x86_64_defconfig",
+    kconfig = "@u_boot//:u_boot",
 )
+
+# BusyBox: the tree at `make defconfig` (`conf -d`, every symbol its
+# default), and two of its configs (`conf -D`). BusyBox's `scripts/kconfig`
+# is the kernel's of 2.6.2x, older than any parser rules_kconfig builds;
+# `4.19`, the oldest, parses its tree (which has no `option`, no `$(...)`
+# and no choice without a default), and the tests here are what shows it
+# resolves it the same. BusyBox's `conf` writes every symbol, the invisible
+# too (confdata.c: "we want to see all syms"), as its sources expect
+# `ENABLE_<name>` for each; `write_invisible` does the same, and the
+# overrides follow it.
 kconfig.repo(
-    name = "u_boot_alldefconfig",
-    env = U_BOOT_ENV,
-    kconfig = "@u_boot//:Kconfig",
+    name = "busybox",
+    kconfig = "@busybox_src//:Config.in",
     kconfig_version = "4.19",
+    write_invisible = True,
+)
+kconfig.overrides(
+    name = "busybox_nommu",
+    config = "@busybox_src//:configs/TEST_nommu_defconfig",
+    kconfig = "@busybox//:busybox",
+)
+kconfig.overrides(
+    name = "busybox_freebsd",
+    config = "@busybox_src//:configs/freebsd_defconfig",
+    kconfig = "@busybox//:busybox",
 )
 use_repo(
     kconfig,
+    "busybox",
+    "busybox_freebsd",
+    "busybox_nommu",
     "linux_arm64",
+    "linux_x86",
     "linux_x86_64",
-    "linux_x86_64_alldefconfig",
-    "u_boot_alldefconfig",
+    "u_boot",
     "u_boot_qemu_arm64",
     "u_boot_qemu_x86_64",
 )

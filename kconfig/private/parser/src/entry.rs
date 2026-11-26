@@ -70,6 +70,7 @@ fn generate(request: &Request) -> Result<Value, String> {
                 config_ws_path,
                 settings_labels: &settings_labels,
                 settings_options: request.settings_options.as_ref(),
+                write_invisible: request.write_invisible,
                 env: &kconfig_env,
                 kconfig_version: optional(&request.kconfig_version).unwrap_or(&parser_version),
                 parser_version: &parser_version,
@@ -93,9 +94,10 @@ fn generate(request: &Request) -> Result<Value, String> {
                 srctree: &srctree,
                 config: &paths::internal(required(&request.config, "config")?),
                 kconfig_repo: required(&request.kconfig_repo, "kconfig_repo")?,
-                config_ws_path: required(&request.config_ws_path, "config_ws_path")?,
+                config_ws_path: optional(&request.config_ws_path),
                 base_config: base_config.as_deref(),
                 settings_labels: &settings_labels,
+                write_invisible: request.write_invisible,
             })?;
             Ok(ok(
                 vec![

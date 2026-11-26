@@ -54,9 +54,10 @@ struct kconfig_shim {
     /* `conf_read` of a `.config` given as text; nonzero on failure. */
     int (*load_config)(const char* text, size_t len);
 
-    /* The `.config` `conf_write` writes, without its heading; NULL on
-     * failure. */
-    const char* (*config_contents)(size_t* len);
+    /* The `.config` `conf_write` writes, without its heading, and with the
+     * symbols it would leave out when `write_invisible` is set (see
+     * `kconfig_host_write_unset`); NULL on failure. */
+    const char* (*config_contents)(size_t* len, int write_invisible);
 
     /* The symbol of every menu node, depth first in the order of the tree,
      * with repeats and without choices; `free` the array. */

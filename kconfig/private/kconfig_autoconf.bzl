@@ -69,11 +69,16 @@ def _kconfig_autoconf_impl(ctx):
     for setting in ctx.attr.settings:
         info = setting[BuildSettingInfo]
         name = setting.label.name
-        if name in unset:
-            continue
         value = info.value
         if type(value) not in ("bool", "int", "string"):
             fail("Unsupported build setting type for {}: {}".format(name, type(value)))
+
+        # `unset` is the generated configuration's view. Under an overrides
+        # transition the same setting can carry a value (an invisible symbol
+        # whose dependencies the overlay meets), and then it defines as any
+        # other; only the empty value is still "no value".
+        if name in unset and value in (False, 0, "", "n"):
+            continue
 
         define = _define(name, value, ctx.attr.types.get(name))
         if define == None:
@@ -119,7 +124,7 @@ the tools leave out of `autoconf.h` so that `#ifdef` can tell.
             default = {},
         ),
         "unset": attr.string_list(
-            doc = "The `CONFIG_*` names of settings the configuration gives no value, which define nothing. A build setting always has a value, so the generated repository lists the symbols the Kconfig tools would leave out of `autoconf.h` here.",
+            doc = "The `CONFIG_*` names of settings the configuration gives no value, which define nothing. A build setting always has a value, so the generated repository lists the symbols the Kconfig tools would leave out of `autoconf.h` here. One that a transition gives a value anyway defines it.",
             default = [],
         ),
     },

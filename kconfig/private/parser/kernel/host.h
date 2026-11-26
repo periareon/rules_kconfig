@@ -102,6 +102,14 @@ char* kconfig_host_strndup(const char* s, size_t n);
  * kernel's would exit: the parse has failed, with the message on stderr. */
 void kconfig_host_fail(void);
 
+/* `write_invisible`: while set, the patched `conf_write` writes the symbols
+ * it would leave out as well, each in its place in the tree's order,
+ * through `kconfig_host_write_unset`: not set, or the empty value of the
+ * type. */
+extern int kconfig_host_write_invisible;
+struct symbol;
+void kconfig_host_write_unset(FILE* out, struct symbol* sym);
+
 /* The renames, for the parser's sources; the shim defines
  * KCONFIG_HOST_IMPLEMENTATION and keeps the libc's names. `struct stat` is
  * not a call, so `stat` is renamed as a function-like macro. */
