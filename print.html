@@ -423,6 +423,12 @@ else comes from the <code>kconfig_library</code>: the files, the release
 (<code>kconfig_version</code>) and the variables the tree reads (<code>env</code>, <code>env_labels</code>),
 which the <code>lib</code> of a generated repository carries as its <code>kconfig.repo</code> was
 given them.</p>
+<p><code>mconf</code> runs over the library's files in the runfiles: the root's directory
+there is <code>$(srctree)</code> and the working directory, as the repository rule runs
+a tree's <code>$(shell,...)</code> commands. A tree whose Kconfig files run its own
+scripts lists them in the library's <code>srcs</code>. Everything is found through the
+runfiles and <code>BUILD_WORKSPACE_DIRECTORY</code>; no path is absolute or resolved
+through symlinks.</p>
 <p>A repository generated with <code>defaults</code>, and a <code>kconfig.overrides</code> over a
 <code>config</code>, have a <code>menuconfig</code> of their own over that file when it is the
 root module's: <code>bazel run @my_kconfig//:menuconfig</code>. The next build after a
@@ -605,7 +611,7 @@ generated repository carries what its <code>kconfig.repo</code> was given.</p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="kconfig_library-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-deps"></a>deps</td><td style="text-align: left">Other <code>kconfig_library</code> targets whose sources should be included transitively.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
-<tr><td style="text-align: left"><a id="kconfig_library-srcs"></a>srcs</td><td style="text-align: left">Kconfig source files. Must be real (non-generated) files.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-srcs"></a>srcs</td><td style="text-align: left">Kconfig source files, and any script their <code>$(shell,...)</code> commands run, so that <code>menuconfig</code> has them. Must be real (non-generated) files.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-env"></a>env</td><td style="text-align: left">Environment variables the Kconfig files read (<code>$(NAME)</code>, <code>option env</code>), by name.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-env_labels"></a>env_labels</td><td style="text-align: left">Files whose path is a variable's value (a compiler the tree's <code>$(shell,...)</code> runs), each label mapped to the variable's name.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-kconfig_version"></a>kconfig_version</td><td style="text-align: left">The kernel release the tree is written for, as <code>kconfig.repo</code> takes it (<code>6.12</code>, <code>4.19</code>); the newest checked when empty.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>""</code></td></tr>

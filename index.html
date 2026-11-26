@@ -422,6 +422,12 @@ else comes from the <code>kconfig_library</code>: the files, the release
 (<code>kconfig_version</code>) and the variables the tree reads (<code>env</code>, <code>env_labels</code>),
 which the <code>lib</code> of a generated repository carries as its <code>kconfig.repo</code> was
 given them.</p>
+<p><code>mconf</code> runs over the library's files in the runfiles: the root's directory
+there is <code>$(srctree)</code> and the working directory, as the repository rule runs
+a tree's <code>$(shell,...)</code> commands. A tree whose Kconfig files run its own
+scripts lists them in the library's <code>srcs</code>. Everything is found through the
+runfiles and <code>BUILD_WORKSPACE_DIRECTORY</code>; no path is absolute or resolved
+through symlinks.</p>
 <p>A repository generated with <code>defaults</code>, and a <code>kconfig.overrides</code> over a
 <code>config</code>, have a <code>menuconfig</code> of their own over that file when it is the
 root module's: <code>bazel run @my_kconfig//:menuconfig</code>. The next build after a
