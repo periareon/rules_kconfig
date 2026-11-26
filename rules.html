@@ -191,7 +191,6 @@ use_repo(kconfig, "my_board_config")
 <h2 id="rules"><a class="header" href="#rules">Rules</a></h2>
 <ul>
 <li><a href="#kconfig_library">kconfig_library</a></li>
-<li><a href="#kconfig_toolchain">kconfig_toolchain</a></li>
 <li><a href="#make_variable_setting">make_variable_setting</a></li>
 <li><a href="#menuconfig">menuconfig</a></li>
 </ul>
@@ -214,33 +213,27 @@ use_repo(kconfig, "my_board_config")
 <pre>
 load("@rules_kconfig//kconfig:defs.bzl", "kconfig_library")
 
-kconfig_library(<a href="#kconfig_library-name">name</a>, <a href="#kconfig_library-deps">deps</a>, <a href="#kconfig_library-srcs">srcs</a>, <a href="#kconfig_library-root">root</a>)
+kconfig_library(<a href="#kconfig_library-name">name</a>, <a href="#kconfig_library-deps">deps</a>, <a href="#kconfig_library-srcs">srcs</a>, <a href="#kconfig_library-env">env</a>, <a href="#kconfig_library-env_labels">env_labels</a>, <a href="#kconfig_library-kconfig_version">kconfig_version</a>, <a href="#kconfig_library-root">root</a>)
 </pre>
 <p>Collect Kconfig source files into a single provider for use by <code>menuconfig</code> and repository rules.</p>
 <p>All source files must be real (non-generated) files. If a single source is
 provided, it is automatically treated as the root. When multiple sources are
 present, set <code>root</code> explicitly to indicate the top-level Kconfig entry point.
-Transitive sources from <code>deps</code> are included in the provider.</p>
+Transitive sources from <code>deps</code> are included in the provider, as are their
+variables; the library's own take precedence.</p>
+<p>The release the tree is written for (<code>kconfig_version</code>) and the variables
+its files read (<code>env</code>, <code>env_labels</code>) are properties of the tree, so they
+live here, and <code>menuconfig</code> takes them from the provider. The <code>lib</code> of a
+generated repository carries what its <code>kconfig.repo</code> was given.</p>
 <p><strong>ATTRIBUTES</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="kconfig_library-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-deps"></a>deps</td><td style="text-align: left">Other <code>kconfig_library</code> targets whose sources should be included transitively.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-srcs"></a>srcs</td><td style="text-align: left">Kconfig source files. Must be real (non-generated) files.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">List of labels</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>[]</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-env"></a>env</td><td style="text-align: left">Environment variables the Kconfig files read (<code>$(NAME)</code>, <code>option env</code>), by name.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-env_labels"></a>env_labels</td><td style="text-align: left">Files whose path is a variable's value (a compiler the tree's <code>$(shell,...)</code> runs), each label mapped to the variable's name.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_library-kconfig_version"></a>kconfig_version</td><td style="text-align: left">The kernel release the tree is written for, as <code>kconfig.repo</code> takes it (<code>6.12</code>, <code>4.19</code>); the newest checked when empty.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>""</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_library-root"></a>root</td><td style="text-align: left">The top-level Kconfig file. Inferred automatically when <code>srcs</code> contains exactly one file.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
-</tbody></table>
-</div>
-<p><a id="kconfig_toolchain"></a></p>
-<h2 id="kconfig_toolchain"><a class="header" href="#kconfig_toolchain">kconfig_toolchain</a></h2>
-<pre>
-load("@rules_kconfig//kconfig:defs.bzl", "kconfig_toolchain")
-
-kconfig_toolchain(<a href="#kconfig_toolchain-name">name</a>, <a href="#kconfig_toolchain-kconfiglib">kconfiglib</a>)
-</pre>
-<p>Declares a kconfig toolchain backed by kconfiglib.</p>
-<p><strong>ATTRIBUTES</strong></p>
-<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
-<tr><td style="text-align: left"><a id="kconfig_toolchain-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="kconfig_toolchain-kconfiglib"></a>kconfiglib</td><td style="text-align: left">A py_library providing kconfiglib.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 </tbody></table>
 </div>
 <p><a id="make_variable_setting"></a></p>
@@ -292,15 +285,28 @@ load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
 
 menuconfig(<a href="#menuconfig-name">name</a>, <a href="#menuconfig-config">config</a>, <a href="#menuconfig-kconfig">kconfig</a>)
 </pre>
-<p>Launch kconfiglib's menuconfig TUI for interactive Kconfig editing.</p>
-<p>Run with <code>bazel run</code> to interactively create or edit a <code>.config</code> file
-against a Kconfig tree. The TUI writes the resulting configuration to
-the path specified by <code>config</code> (relative to the workspace root).</p>
+<p>Edit a <code>.config</code> interactively with <code>mconf</code>, the <code>make menuconfig</code> terminal UI.</p>
+<p><code>mconf</code> is built from the kernel's scripts/kconfig of the parser version
+that serves the release the tree is written for (<code>kconfig_version</code> of its
+<code>kconfig_library</code>), the code the kconfig repository rule reads the tree
+with, so what the TUI accepts and writes is what the build reads. The tree's
+variables (<code>env</code>, <code>env_labels</code> of the library) are set for it. The launcher
+is the parser's native build, <code>kconfig_tool</code>, which a release ships for
+every platform.</p>
+<p><code>mconf</code> is a curses program over POSIX, so the target is for Linux and
+macOS: on Windows, and on a host the release has no native build of the
+parser for, it is incompatible, which <code>//...</code> skips and <code>bazel run</code> reports.</p>
+<p>Run with <code>bazel run</code>. The TUI reads and writes the file <code>config</code> names,
+relative to the root module's workspace, which must exist there: the
+launcher resolves the path on disk, and refuses one that leads outside the
+workspace or to no file. A repository generated from a <code>defaults</code> file, or
+<code>kconfig.overrides</code> over a <code>config</code>, has a <code>menuconfig</code> of its own over that
+file when the file is the root module's.</p>
 <p><strong>ATTRIBUTES</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="menuconfig-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="menuconfig-config"></a>config</td><td style="text-align: left">Workspace-relative path to the <code>.config</code> file to read/write.</td><td style="text-align: left">String</td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="menuconfig-kconfig"></a>kconfig</td><td style="text-align: left">A kconfig_library target providing the Kconfig source tree.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-config"></a>config</td><td style="text-align: left">Workspace-relative path of the <code>.config</code> file to read and write; an existing file of the root module's workspace.</td><td style="text-align: left">String</td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-kconfig"></a>kconfig</td><td style="text-align: left">The <code>kconfig_library</code> of the tree: its files, release and variables.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 </tbody></table>
 </div>
 <p><a id="KConfigInfo"></a></p>
@@ -308,12 +314,15 @@ the path specified by <code>config</code> (relative to the workspace root).</p>
 <pre>
 load("@rules_kconfig//kconfig:defs.bzl", "KConfigInfo")
 
-KConfigInfo(<a href="#KConfigInfo-root">root</a>, <a href="#KConfigInfo-srcs">srcs</a>)
+KConfigInfo(<a href="#KConfigInfo-env">env</a>, <a href="#KConfigInfo-env_files">env_files</a>, <a href="#KConfigInfo-kconfig_version">kconfig_version</a>, <a href="#KConfigInfo-root">root</a>, <a href="#KConfigInfo-srcs">srcs</a>)
 </pre>
-<p>Encapsulates a Kconfig source tree: an optional root file and all source files (direct and transitive).</p>
+<p>A Kconfig source tree: its root file, every source file (direct and transitive), the release it is written for and the variables it reads.</p>
 <p><strong>FIELDS</strong></p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th></tr></thead><tbody>
-<tr><td style="text-align: left"><a id="KConfigInfo-root"></a>root</td><td style="text-align: left">Optional[File]: The top-level Kconfig file that kconfiglib should parse. May be None when a library contributes sources but is not itself a root.</td></tr>
+<tr><td style="text-align: left"><a id="KConfigInfo-env"></a>env</td><td style="text-align: left">dict[str, str]: The environment variables the tree's Kconfig files read (<code>$(NAME)</code>, <code>option env</code>), by name.</td></tr>
+<tr><td style="text-align: left"><a id="KConfigInfo-env_files"></a>env_files</td><td style="text-align: left">dict[str, File]: Variables whose value is a file's path (a compiler the tree's <code>$(shell,...)</code> runs), by name.</td></tr>
+<tr><td style="text-align: left"><a id="KConfigInfo-kconfig_version"></a>kconfig_version</td><td style="text-align: left">str: The kernel release the tree is written for (<code>kconfig_version</code> of <code>kconfig_library</code>); empty for the default.</td></tr>
+<tr><td style="text-align: left"><a id="KConfigInfo-root"></a>root</td><td style="text-align: left">Optional[File]: The top-level Kconfig file that the parser reads. May be None when a library contributes sources but is not itself a root.</td></tr>
 <tr><td style="text-align: left"><a id="KConfigInfo-srcs"></a>srcs</td><td style="text-align: left">depset[File]: All Kconfig source files (direct and transitive) reachable from this library.</td></tr>
 </tbody></table>
 </div>
@@ -339,12 +348,14 @@ kconfig_overrides_repository(<a href="#kconfig_overrides_repository-name">name</
 </pre>
 <p>Overlay .config values onto an existing kconfig repository.</p>
 <p>Reads the manifest from the source kconfig repository to locate the
-symlinked Kconfig source tree, then reparses it, with the parser of the
-<code>kconfig_version</code> the manifest records, as <code>kconfig_repository</code> did, with a
-user-provided <code>.config</code> file. If the source repository was itself
+Kconfig tree, then reparses it where the source repository read it, with the
+parser of the <code>kconfig_version</code> the manifest records, as <code>kconfig_repository</code>
+did, with a user-provided <code>.config</code> file. If the source repository was itself
 created with a <code>.config</code>, the overrides are stacked on top of those
-base values. Generates a <code>defs.bzl</code> containing a Starlark transition
-and wrapper rule that apply the overrides.</p>
+base values. The tree's <code>$(shell,...)</code> commands answer as they did for the
+source repository, from its manifest, and <code>rendered.config</code> is written as
+the source repository's was (<code>write_invisible</code>). Generates a <code>defs.bzl</code>
+containing a Starlark transition and wrapper rule that apply the overrides.</p>
 <p>Values explicitly set on the command line take precedence over the overlay.</p>
 <p>The generated <code>defs.bzl</code> creates the transition and rule:</p>
 <div class="table-wrapper"><table><thead><tr><th>rule</th><th>description</th></tr></thead><tbody>
@@ -375,7 +386,7 @@ with_kconfig_overrides(
 load("@rules_kconfig//kconfig:defs.bzl", "kconfig_repository")
 
 kconfig_repository(<a href="#kconfig_repository-name">name</a>, <a href="#kconfig_repository-apparent_name">apparent_name</a>, <a href="#kconfig_repository-defaults">defaults</a>, <a href="#kconfig_repository-env">env</a>, <a href="#kconfig_repository-env_labels">env_labels</a>, <a href="#kconfig_repository-kconfig">kconfig</a>, <a href="#kconfig_repository-kconfig_version">kconfig_version</a>,
-                   <a href="#kconfig_repository-settings_labels">settings_labels</a>, <a href="#kconfig_repository-settings_options">settings_options</a>, <a href="#kconfig_repository-tool">tool</a>, <a href="#kconfig_repository-wasm_module">wasm_module</a>)
+                   <a href="#kconfig_repository-settings_labels">settings_labels</a>, <a href="#kconfig_repository-settings_options">settings_options</a>, <a href="#kconfig_repository-tool">tool</a>, <a href="#kconfig_repository-wasm_module">wasm_module</a>, <a href="#kconfig_repository-write_invisible">write_invisible</a>)
 </pre>
 <p>Parse a Kconfig file tree and generate a Bazel repository with build settings.</p>
 <p>The generated repository contains a <code>bool_flag</code>, <code>int_flag</code>, or <code>string_flag</code>
@@ -401,11 +412,12 @@ directly.</p>
 <tr><td style="text-align: left"><a id="kconfig_repository-env"></a>env</td><td style="text-align: left">Environment variables for the Kconfig tree: what <code>$(NAME)</code> and <code>option env</code> read, and the environment of <code>$(shell,...)</code> commands, over the repository rule's own environment (<code>--repo_env</code>). The kernel's tree reads <code>ARCH</code>, <code>SRCARCH</code>, <code>CC</code>, <code>LD</code> and others its Makefile exports, so that several architectures' repositories can be generated in one workspace. The variables are recorded in the manifest and apply to <code>kconfig_overrides_repository</code> layered on the repository.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-env_labels"></a>env_labels</td><td style="text-align: left">Files as environment variables for the Kconfig tree: each label's path is the value of the variable it maps to, over <code>env</code>. For the tools a tree's <code>$(shell,...)</code> probes run, <code>CC</code>, <code>LD</code> or <code>RUSTC</code>, a label into a downloaded toolchain's repository (<code>@llvm_toolchain_llvm//:bin/clang</code>) runs that toolchain's binary on the host; a repository rule cannot resolve the toolchain Bazel would pick for a platform.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="kconfig_repository-kconfig_version"></a>kconfig_version</td><td style="text-align: left">The kernel release the tree is written for: <code>6.17</code> (the default), <code>6.12.7</code>, <code>4.19</code>. Kconfig has no version of its own, so this is the release of the kernel tree, or the one a project's copy of <code>scripts/kconfig</code> was synced from (U-Boot: <code>4.19</code>). The tree is parsed and resolved as that release's <code>conf</code> would, by the newest parser rules_kconfig builds at or below the version (<code>6.12</code>, <code>4.19</code>); a version below the oldest is an error. The version is recorded in the manifest, and the overrides layered on the repository use the same.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>"6.17"</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-kconfig_version"></a>kconfig_version</td><td style="text-align: left">The kernel release the tree is written for: <code>6.17</code> (the default), <code>6.12.7</code>, <code>4.19</code>. Kconfig has no version of its own, so this is the release of the kernel tree, or the one a project's copy of <code>scripts/kconfig</code> was synced from. The tree is parsed and resolved as that release's <code>conf</code> would, by the newest parser rules_kconfig builds at or below the version (<code>6.12</code>, <code>4.19</code>); a version below the oldest is an error. The version is recorded in the manifest, and the overrides layered on the repository use the same.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>"6.17"</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-settings_labels"></a>settings_labels</td><td style="text-align: left">Map of <code>CONFIG_*</code> names to label strings for user-provided rules that replace generated flags. The label must point to a target that provides BuildSettingInfo. Use this for symbols whose values depend on the build configuration (e.g. toolchain-derived values like compiler version).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-tool"></a>tool</td><td style="text-align: left">The native build of the parser (<code>kconfig_tool</code>), used where the WebAssembly module cannot be. The <code>kconfig</code> module extension provides the release's build for the host, or the one <code>RULES_KCONFIG_TOOL</code> names.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig_repository-wasm_module"></a>wasm_module</td><td style="text-align: left">The WebAssembly build of the parser (<code>kconfig.wasm</code>), used on Bazel 9.3 or newer with <code>--experimental_repository_ctx_execute_wasm</code>, unless <code>RULES_KCONFIG_USE_WASM=0</code> (through <code>--repo_env</code>) asks for the native build. The <code>kconfig</code> module extension provides the release's module, or the one <code>RULES_KCONFIG_WASM</code> names.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>None</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig_repository-write_invisible"></a>write_invisible</td><td style="text-align: left">Write the symbols the configuration makes invisible too, to <code>rendered.config</code> as <code># CONFIG_X is not set</code> or with the type's empty value, each in its place, and to <code>config.h</code> as that value, for sources that expect a <code>CONFIG_X</code> for every symbol, as BusyBox's do; the kernel's tools leave them out.</td><td style="text-align: left">Boolean</td><td style="text-align: left">optional</td><td style="text-align: left"><code>False</code></td></tr>
 </tbody></table>
 </div>
 <p><a id="kconfig"></a></p>
@@ -414,7 +426,7 @@ directly.</p>
 kconfig = use_extension("@rules_kconfig//kconfig:defs.bzl", "kconfig")
 kconfig.overrides(<a href="#kconfig.overrides-name">name</a>, <a href="#kconfig.overrides-config">config</a>, <a href="#kconfig.overrides-kconfig">kconfig</a>)
 kconfig.repo(<a href="#kconfig.repo-name">name</a>, <a href="#kconfig.repo-defaults">defaults</a>, <a href="#kconfig.repo-env">env</a>, <a href="#kconfig.repo-env_labels">env_labels</a>, <a href="#kconfig.repo-kconfig">kconfig</a>, <a href="#kconfig.repo-kconfig_version">kconfig_version</a>, <a href="#kconfig.repo-settings_labels">settings_labels</a>,
-             <a href="#kconfig.repo-settings_options">settings_options</a>)
+             <a href="#kconfig.repo-settings_options">settings_options</a>, <a href="#kconfig.repo-write_invisible">write_invisible</a>)
 </pre>
 <p>Configure kconfig repositories.</p>
 <p><strong>TAG CLASSES</strong></p>
@@ -438,9 +450,10 @@ kconfig.repo(<a href="#kconfig.repo-name">name</a>, <a href="#kconfig.repo-defau
 <tr><td style="text-align: left"><a id="kconfig.repo-env"></a>env</td><td style="text-align: left">Environment variables for the Kconfig tree: what <code>$(NAME)</code> and <code>option env</code> read, and the environment of <code>$(shell,...)</code> commands, over the repository rule's own environment (<code>--repo_env</code>). The kernel's tree reads <code>ARCH</code>, <code>SRCARCH</code>, <code>CC</code>, <code>LD</code> and others its Makefile exports, so that several architectures' repositories can be generated in one workspace.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-env_labels"></a>env_labels</td><td style="text-align: left">Files as environment variables for the Kconfig tree, each label mapped to the name of its variable: a downloaded toolchain's compiler as <code>CC</code>, for the tree's <code>$(shell,...)</code> probes to run (<code>{"@llvm_toolchain_llvm//:bin/clang": "CC"}</code>). The label's path is the value, over <code>env</code>.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-kconfig"></a>kconfig</td><td style="text-align: left">The root Kconfig file to parse. All files referenced via <code>source</code> directives are followed automatically.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
-<tr><td style="text-align: left"><a id="kconfig.repo-kconfig_version"></a>kconfig_version</td><td style="text-align: left">The kernel release the tree is written for: <code>6.17</code> (the default), <code>6.12.7</code>, <code>4.19</code>. Kconfig has no version of its own, so this is the release of the kernel tree, or the one a project's copy of <code>scripts/kconfig</code> was synced from (U-Boot: <code>4.19</code>). The tree is parsed and resolved as that release's <code>conf</code> would, by the newest parser rules_kconfig builds at or below the version (<code>6.12</code>, <code>4.19</code>); a version below the oldest is an error. The version is recorded in the manifest, and the overrides layered on the repository use the same.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>"6.17"</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-kconfig_version"></a>kconfig_version</td><td style="text-align: left">The kernel release the tree is written for: <code>6.17</code> (the default), <code>6.12.7</code>, <code>4.19</code>. Kconfig has no version of its own, so this is the release of the kernel tree, or the one a project's copy of <code>scripts/kconfig</code> was synced from. The tree is parsed and resolved as that release's <code>conf</code> would, by the newest parser rules_kconfig builds at or below the version (<code>6.12</code>, <code>4.19</code>); a version below the oldest is an error. The version is recorded in the manifest, and the overrides layered on the repository use the same.</td><td style="text-align: left">String</td><td style="text-align: left">optional</td><td style="text-align: left"><code>"6.17"</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-settings_labels"></a>settings_labels</td><td style="text-align: left">Map of user-provided rule labels to CONFIG_* names they replace. Each label must point to a target that provides BuildSettingInfo. Use this for symbols whose values depend on the build configuration (e.g. toolchain-derived values like compiler version).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: Label -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="kconfig.repo-settings_options"></a>settings_options</td><td style="text-align: left">Optional map of CONFIG_* names to lists of string values for generated config_settings.</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; List of strings</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
+<tr><td style="text-align: left"><a id="kconfig.repo-write_invisible"></a>write_invisible</td><td style="text-align: left">Write the symbols the configuration makes invisible (no prompt applies and no default does) too: to <code>rendered.config</code>, each in its place, as <code># CONFIG_X is not set</code> or with the type's empty value (<code>CONFIG_X=""</code>, <code>CONFIG_X=0</code>), and to <code>config.h</code> as that value, so that a <code>string</code> or <code>int</code> is defined, an empty one. The kernel's tools leave such a symbol out of <code>.config</code> and <code>autoconf.h</code>, so that <code>#ifdef</code> can tell; for sources that expect a <code>CONFIG_X</code> for every symbol, as BusyBox's <code>conf</code> writes it.</td><td style="text-align: left">Boolean</td><td style="text-align: left">optional</td><td style="text-align: left"><code>False</code></td></tr>
 </tbody></table>
 </div>
                     </main>

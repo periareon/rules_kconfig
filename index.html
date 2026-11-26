@@ -178,10 +178,9 @@ kconfig.repo(
 use_repo(kconfig, "my_kconfig")
 </code></pre>
 <p>The tree is parsed by the Linux kernel's own Kconfig parser, which the
-extension downloads for the host (see <a href="#parser">Parser</a>); no Python is
-needed, except for <code>menuconfig</code>, which runs
-<a href="https://github.com/ulfalizer/Kconfiglib">kconfiglib</a>'s interface on a
-<a href="https://github.com/bazelbuild/rules_python">rules_python</a> toolchain.</p>
+extension downloads for the host (see <a href="#parser">Parser</a>). <code>menuconfig</code> is
+the kernel's own <code>mconf</code> too, built from the same sources with bison, flex
+and ncurses from the registry, launched by the parser's native build.</p>
 <h2 id="kconfig-versions"><a class="header" href="#kconfig-versions">Kconfig versions</a></h2>
 <p>Kconfig has no version of its own: the language is whatever the kernel's
 <code>scripts/kconfig</code> accepts at a release, and that has changed over the years.
@@ -190,7 +189,7 @@ tree is then parsed and resolved exactly as that release's <code>conf</code> wou
 <ul>
 <li>For a kernel tree, its release: <code>6.12</code>, or <code>6.12.7</code>.</li>
 <li>For a project with its own copy of the parser, the release the copy was
-synced from. U-Boot's is <code>4.19</code>; barebox and BusyBox are near it.</li>
+synced from.</li>
 <li>A tree that uses <code>---help---</code>, <code>optional</code> choices or <code>option</code> needs a
 version before <code>6.10</code>, where the kernel dropped them.</li>
 </ul>
@@ -207,8 +206,8 @@ one at or below it:</p>
 generated repository's manifest, and the <code>kconfig.overrides</code> layered on the
 repository use the same parser; they take no version of their own.</p>
 <pre><code class="language-python">kconfig.repo(
-    name = "u_boot",
-    kconfig = "@u_boot//:Kconfig",
+    name = "my_kconfig",
+    kconfig = "@my_tree//:Kconfig",
     kconfig_version = "4.19",
 )
 </code></pre>
@@ -299,14 +298,19 @@ is left undefined. So is a symbol the configuration gives no value because its
 <code>depends on</code> is unmet: its flag still exists, with the falsey default of its
 type, but <code>config.h</code> leaves it out so that <code>#ifdef</code> tells it apart from one
 set to <code>0</code> or <code>""</code>, as the kernel's headers expect.</p>
+<p>Some trees' sources expect a <code>CONFIG_&lt;name&gt;</code> for every symbol instead.
+<code>write_invisible = True</code> on <code>kconfig.repo</code> writes every symbol, as BusyBox's
+<code>conf</code> does: one the configuration gives no value goes to <code>rendered.config</code>,
+in its place, as <code># CONFIG_&lt;name&gt; is not set</code> or with the empty value of its
+type (<code>CONFIG_&lt;name&gt;=""</code>, <code>CONFIG_&lt;name&gt;=0</code>), and <code>config.h</code> defines it so.</p>
 <h3 id="reacting-to-flags-with-config_setting"><a class="header" href="#reacting-to-flags-with-config_setting">Reacting to flags with <code>config_setting</code></a></h3>
 <p>The generated repository includes a <code>settings/</code> subpackage with
 <code>config_setting</code> targets for every flag. Bool flags produce two targets:
 <code>CONFIG_&lt;NAME&gt;_Y</code> (matching <code>"true"</code>) and <code>CONFIG_&lt;NAME&gt;_N</code> (matching
 <code>"false"</code>). Int and string flags produce a target matching their Kconfig
 default value (named <code>CONFIG_&lt;NAME&gt;_&lt;value&gt;</code>; a character a target name may
-not hold, such as the <code>:</code> of U-Boot's <code>":auto"</code>, is <code>_</code> in the name, while
-the value matched is the value itself).</p>
+not hold, such as <code>:</code>, is <code>_</code> in the name, while the value matched is the
+value itself).</p>
 <p>Use these directly in <code>select()</code>:</p>
 <pre><code class="language-python">cc_library(
     name = "mylib",
@@ -355,39 +359,36 @@ Kconfig tools calculate, the one <code>rendered.config</code> shows; <code>setti
 replaces such a symbol with a build-time value.</p>
 <h2 id="the-trees-environment-variables"><a class="header" href="#the-trees-environment-variables">The tree's environment variables</a></h2>
 <p>A Kconfig tree may read variables with <code>$(NAME)</code> or <code>option env</code>, and its
-<code>$(shell,...)</code> commands run in an environment. The kernel's tree reads
-<code>ARCH</code>, <code>SRCARCH</code>, <code>CC</code>, <code>LD</code> and the others its Makefile exports. Give them
-with <code>env</code>, per repository, so that several configurations of one tree can
-come out of a workspace:</p>
+<code>$(shell,...)</code> commands run in an environment. Give the variables the tree
+expects with <code>env</code>, per repository, so that several configurations of one
+tree can come out of a workspace:</p>
 <pre><code class="language-python">kconfig.repo(
-    name = "linux_arm64",
-    kconfig = "@linux//:Kconfig",
+    name = "my_kconfig_arm64",
+    kconfig = "@my_tree//:Kconfig",
     defaults = "//configs:arm64_defconfig",
     env = {
         "ARCH": "arm64",
         "SRCARCH": "arm64",
-        "CC": "scripts/dummy-tools/gcc",
-        "LD": "scripts/dummy-tools/ld",
     },
 )
 </code></pre>
 <p>A variable <code>env</code> does not name is read from the repository rule's own
 environment (<code>--repo_env</code>). The variables are recorded in the manifest and
-apply to <code>kconfig.overrides</code> layered on the repository. The
-<a href="../../examples/upstream/">upstream example</a> generates repositories from
-the Linux and U-Boot trees this way and checks them against the trees' own
-<code>conf</code>.</p>
+apply to <code>kconfig.overrides</code> layered on the repository, and the generated
+repository's <code>kconfig_library</code> carries them, with the version, for
+<code>menuconfig</code>. The <a href="../../examples/upstream/">upstream example</a> generates
+repositories this way and checks them against the trees' own <code>conf</code>.</p>
 <h3 id="tools-from-a-toolchains-repository"><a class="header" href="#tools-from-a-toolchains-repository">Tools from a toolchain's repository</a></h3>
-<p>The kernel's <code>$(cc-option,...)</code>, <code>$(as-instr,...)</code> and <code>$(success,...)</code>
-probes run <code>$(CC)</code>, <code>$(LD)</code> or <code>$(RUSTC)</code> while the tree is parsed, and what
-they answer decides which symbols are visible and selected. A repository
-rule runs before any toolchain is resolved, so it cannot ask Bazel for the
-compiler of a platform; it can run a binary of a toolchain repository that
-is already downloaded. <code>env_labels</code> maps such a file to a variable, and its
-path is the value:</p>
+<p>A tree's <code>$(shell,...)</code> macros may run a compiler or linker named by a
+variable while the tree is parsed, and what they answer decides which
+symbols are visible and selected. A repository rule runs before any
+toolchain is resolved, so it cannot ask Bazel for the compiler of a
+platform; it can run a binary of a toolchain repository that is already
+downloaded. <code>env_labels</code> maps such a file to a variable, and its path is
+the value:</p>
 <pre><code class="language-python">kconfig.repo(
-    name = "linux_arm64",
-    kconfig = "@linux//:Kconfig",
+    name = "my_kconfig_arm64",
+    kconfig = "@my_tree//:Kconfig",
     env = {"ARCH": "arm64", "SRCARCH": "arm64"},
     env_labels = {
         "@llvm_toolchain_llvm//:bin/clang": "CC",
@@ -396,23 +397,39 @@ path is the value:</p>
 )
 </code></pre>
 <p>The binary runs on the host, as a cross compiler does; the paths go into the
-manifest for <code>kconfig.overrides</code>. Where no toolchain is wanted at that point,
-the kernel's <code>scripts/dummy-tools</code> answer every probe the same way, which is
-what the upstream example does.</p>
+manifest for <code>kconfig.overrides</code>.</p>
 <h2 id="interactive-configuration-with-menuconfig"><a class="header" href="#interactive-configuration-with-menuconfig">Interactive configuration with <code>menuconfig</code></a></h2>
-<p>The <code>menuconfig</code> rule launches kconfiglib's terminal UI for interactive
-Kconfig editing. Add a target to your <code>BUILD.bazel</code>:</p>
+<p>The <code>menuconfig</code> rule runs <code>mconf</code>, the <code>make menuconfig</code> terminal UI of
+the kernel's <code>scripts/kconfig</code>, built from the parser version that serves
+the release the tree is written for, so that what it accepts and writes is
+what the repository rule reads. Add a target to your <code>BUILD.bazel</code>:</p>
 <pre><code class="language-python">load("@rules_kconfig//kconfig:menuconfig.bzl", "menuconfig")
 
 menuconfig(
     name = "menuconfig",
-    kconfig = "//:Kconfig",
+    config = ".config",
+    kconfig = "@my_kconfig//:lib",
 )
 </code></pre>
-<p>Then run:</p>
+<p>Then run it:</p>
 <pre><code class="language-bash">bazel run //:menuconfig
 </code></pre>
-<p>The TUI reads and writes the <code>.config</code> file in your workspace root.</p>
+<p>The TUI reads and writes the file <code>config</code> names, relative to the root
+module's workspace. The file must exist there: the launcher resolves the
+path on disk and refuses one that leads outside the workspace or to no
+file, so <code>menuconfig</code> edits a file of your own and nothing else. Everything
+else comes from the <code>kconfig_library</code>: the files, the release
+(<code>kconfig_version</code>) and the variables the tree reads (<code>env</code>, <code>env_labels</code>),
+which the <code>lib</code> of a generated repository carries as its <code>kconfig.repo</code> was
+given them.</p>
+<p>A repository generated with <code>defaults</code>, and a <code>kconfig.overrides</code> over a
+<code>config</code>, have a <code>menuconfig</code> of their own over that file when it is the
+root module's: <code>bazel run @my_kconfig//:menuconfig</code>. The next build after a
+save is under the new configuration, as the repository reads the file.</p>
+<p><code>mconf</code> is a curses program over POSIX, so <code>menuconfig</code> is for Linux and
+macOS. On Windows, and on a host the release has no native build of the
+parser for, the target is incompatible: <code>bazel build //...</code> skips it, and
+<code>bazel run</code> reports why.</p>
 <h2 id="build-time-values-with-settings_labels"><a class="header" href="#build-time-values-with-settings_labels">Build-time values with <code>settings_labels</code></a></h2>
 <p>Some Kconfig symbols derive their default from the build environment
 using <code>$(shell,...)</code> macros — for example, a compiler version obtained
@@ -490,8 +507,10 @@ complete working example including an overrides layer.</p>
 <code>kconfig.overrides</code> to overlay your own <code>.config</code> without modifying the
 external module. If the source repository was itself created with a
 <code>.config</code>, the overrides are stacked on top of those base values. The tree
-is parsed again with the variables and the <code>kconfig_version</code> of the source
-repository, which its manifest records:</p>
+is parsed again as the source repository parsed it, from what its manifest
+records: the variables, the <code>kconfig_version</code>, the <code>write_invisible</code>, and
+what the tree's <code>$(shell,...)</code> commands answered, so that the overrides are
+that configuration with other values, not another host's probes:</p>
 <pre><code class="language-python">kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
 kconfig.overrides(
     name = "my_board_config",
