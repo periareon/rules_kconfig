@@ -1,22 +1,15 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 exports_files([
-    "requirements.in",
     "defs.bzl",
     "extensions.bzl",
     "kconfig_info.bzl",
     "kconfig_library.bzl",
     "kconfig_overrides_repository.bzl",
     "kconfig_repository.bzl",
-    "kconfig_toolchain.bzl",
     "make_variable_setting.bzl",
     "menuconfig.bzl",
 ])
-
-toolchain_type(
-    name = "toolchain_type",
-    visibility = ["//visibility:public"],
-)
 
 bzl_library(
     name = "bzl_lib",

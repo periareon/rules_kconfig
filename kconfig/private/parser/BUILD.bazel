@@ -42,6 +42,7 @@ rust_library(
         ["src/*.rs"],
         exclude = [
             "src/main.rs",
+            "src/menuconfig.rs",
             "src/wasm.rs",
         ],
     ),
@@ -61,9 +62,17 @@ rust_test(
     crate = ":kconfig",
 )
 
+rust_test(
+    name = "kconfig_tool_test",
+    crate = ":kconfig_tool",
+)
+
 rust_binary(
     name = "kconfig_tool",
-    srcs = ["src/main.rs"],
+    srcs = [
+        "src/main.rs",
+        "src/menuconfig.rs",
+    ],
     # A musl build links statically, and a static link takes an archive's
     # members where the archive is listed: rules_rust lists the C parsers
     # again after rustc's own `-lc`, so libc is listed once more at the end,
@@ -73,7 +82,10 @@ rust_binary(
         "//conditions:default": [],
     }),
     visibility = ["//visibility:public"],
-    deps = [":kconfig"],
+    deps = [
+        ":kconfig",
+        "@rules_rust//rust/runfiles",
+    ],
 )
 
 rust_shared_library(

@@ -9,10 +9,7 @@ bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.9")
 bazel_dep(name = "rules_cc_autoconf", version = "0.35.0")
-bazel_dep(name = "rules_python", version = "1.7.0")
-bazel_dep(name = "rules_venv", version = "0.37.0")
 
-bazel_dep(name = "rules_req_compile", version = "1.7.1", dev_dependency = True)
 bazel_dep(name = "rules_rust_mdbook", version = "0.75.0", dev_dependency = True)
 bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
 bazel_dep(name = "stardoc", version = "0.8.0", dev_dependency = True)
@@ -20,8 +17,12 @@ bazel_dep(name = "stardoc", version = "0.8.0", dev_dependency = True)
 # The WebAssembly module links the kernel's parser (see
 # kconfig/private/parser/kernel), generated at build time with the `bison()` and
 # `flex()` rules the BCR builds of the tools ship; they bring m4 themselves.
-bazel_dep(name = "bison", version = "3.8.2.bcr.13", dev_dependency = True)
-bazel_dep(name = "flex", version = "2.6.4.bcr.10", dev_dependency = True)
+# A consumer builds the kernel's `mconf` from the same sources for
+# `menuconfig`, so they are dependencies of every consumer, with the
+# registry's ncurses it draws with.
+bazel_dep(name = "bison", version = "3.8.2.bcr.13")
+bazel_dep(name = "flex", version = "2.6.4.bcr.10")
+bazel_dep(name = "ncurses", version = "6.6.20261024")
 
 # The C toolchains rules_cc configures for the host, so that .bazelrc can
 # name the clang-cl ones on Windows (`build:windows`).
@@ -167,44 +168,5 @@ crate.from_cargo(
 )
 use_repo(crate, "crates")
 
-python = use_extension(
-    "@rules_python//python/extensions:python.bzl",
-    "python",
-    dev_dependency = True,
-)
-python.toolchain(python_version = "3.14")
-use_repo(python, "python_3_14_host")
-
 kconfig = use_extension("//kconfig:extensions.bzl", "kconfig")
-use_repo(kconfig, "kconfiglib", "kernel_kconfig_4_19", "kernel_kconfig_6_12")
-
-register_toolchains(
-    "//kconfig/toolchain:toolchain",
-)
-
-requirements = use_extension("@rules_req_compile//extensions:python.bzl", "requirements", dev_dependency = True)
-requirements.parse(
-    name = "kconfig_pip_deps",
-    config_settings = {
-        "//tools/constraints:linux-aarch64": "linux_aarch64",
-        "//tools/constraints:linux-x86_64": "linux_x86_64",
-        "//tools/constraints:macos-aarch64": "macos_aarch64",
-        "//tools/constraints:windows-x86_64": "windows_x86_64",
-    },
-    requirements_locks = {
-        "//tools/requirements:requirements_linux_aarch64.txt": "linux_aarch64",
-        "//tools/requirements:requirements_linux_x86_64.txt": "linux_x86_64",
-        "//tools/requirements:requirements_macos_aarch64.txt": "macos_aarch64",
-        "//tools/requirements:requirements_windows_x86_64.txt": "windows_x86_64",
-    },
-)
-use_repo(requirements, "kconfig_pip_deps")
-
-register_toolchains(
-    "//tools/toolchains:black_toolchain",
-    "//tools/toolchains:isort_toolchain",
-    "//tools/toolchains:mypy_toolchain",
-    "//tools/toolchains:pylint_toolchain",
-    "//tools/toolchains:pytest_toolchain",
-    dev_dependency = True,
-)
+use_repo(kconfig, "kconfig_parser", "kernel_kconfig_4_19", "kernel_kconfig_6_12")

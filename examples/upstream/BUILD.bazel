@@ -1,3 +1,12 @@
-# The cases are under linux/ and uboot/; defs.bzl has what they share.
+# The cases are under linux/, uboot/ and busybox/; defs.bzl has what they
+# share, and conf_config.sh runs a tree's own `conf` for them.
+
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 exports_files(["defs.bzl"])
+
+sh_binary(
+    name = "conf_config",
+    srcs = ["conf_config.sh"],
+    visibility = ["//visibility:public"],
+)

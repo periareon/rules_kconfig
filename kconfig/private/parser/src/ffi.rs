@@ -43,7 +43,7 @@ pub struct Shim {
     diagnostics: unsafe extern "C" fn(len: *mut usize) -> *const c_char,
     filenames: unsafe extern "C" fn(count: *mut usize) -> *const *const c_char,
     load_config: unsafe extern "C" fn(text: *const c_char, len: usize) -> c_int,
-    config_contents: unsafe extern "C" fn(len: *mut usize) -> *const c_char,
+    config_contents: unsafe extern "C" fn(len: *mut usize, write_invisible: c_int) -> *const c_char,
     menu_symbols: unsafe extern "C" fn(count: *mut usize) -> *mut *mut symbol,
     symbol_name: unsafe extern "C" fn(sym: *mut symbol) -> *const c_char,
     symbol_type: unsafe extern "C" fn(sym: *mut symbol) -> c_int,
@@ -168,15 +168,15 @@ impl Shim {
         unsafe { (self.load_config)(text.as_ptr().cast(), text.len()) == 0 }
     }
 
-    /// The `.config` `conf_write` writes, without its heading; None on
-    /// failure.
-    pub fn config_contents(&self) -> Option<Vec<u8>> {
+    /// The `.config` `conf_write` writes, without its heading, and with the
+    /// symbols it would leave out when `write_invisible`; None on failure.
+    pub fn config_contents(&self, write_invisible: bool) -> Option<Vec<u8>> {
         let mut len = 0usize;
         // SAFETY: `len` is a local for the parser to write; the buffer
         // returned is the parser's own, of `len` bytes, or NULL on failure,
         // which `bytes_of_len` takes for empty, so NULL is checked first.
         unsafe {
-            let ptr = (self.config_contents)(&mut len);
+            let ptr = (self.config_contents)(&mut len, c_int::from(write_invisible));
             if ptr.is_null() {
                 return None;
             }

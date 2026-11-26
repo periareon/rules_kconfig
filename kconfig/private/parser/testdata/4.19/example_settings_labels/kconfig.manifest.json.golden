@@ -3,9 +3,13 @@
   "files": [
     "Kconfig"
   ],
+  "srctree": "<srctree>",
   "kconfig_version": "4.19",
   "parser_version": "4.19",
   "settings_labels": {
     "CONFIG_VERSION": "@//:version"
+  },
+  "shell": {
+    "echo 99": "99\n"
   }
 }

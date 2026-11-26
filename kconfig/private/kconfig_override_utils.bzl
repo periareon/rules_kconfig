@@ -19,7 +19,17 @@ def _forward_extra_providers(target):
 def _with_kconfig_overrides_impl(ctx):
     """Forward providers from a target that has been transitioned with overrides."""
     target = ctx.attr.actual[0]
-    providers = [target[DefaultInfo]] if DefaultInfo in target else []
+    providers = []
+    if DefaultInfo in target:
+        # Files and runfiles only. An executable the target sets (a rule that
+        # marks its output runnable, as a kernel Image's does) cannot be
+        # forwarded by a rule that did not create it; wrapping one for
+        # `bazel run` is what `executable = True` is for.
+        info = target[DefaultInfo]
+        providers.append(DefaultInfo(
+            files = info.files,
+            runfiles = info.default_runfiles,
+        ))
     return providers + _forward_extra_providers(target)
 
 def _with_kconfig_overrides_binary_impl(ctx):

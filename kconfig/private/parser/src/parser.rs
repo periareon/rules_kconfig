@@ -108,10 +108,12 @@ impl Kconfig {
         Ok(())
     }
 
-    /// The `.config` the kernel writes, after `header`.
-    pub fn config_contents(&self, header: &[u8]) -> Result<Vec<u8>, String> {
+    /// The `.config` the kernel writes, after `header`; with
+    /// `write_invisible`, the symbols it would leave out as well, each in
+    /// its place: not set, or the empty value of the type.
+    pub fn config_contents(&self, header: &[u8], write_invisible: bool) -> Result<Vec<u8>, String> {
         let contents = ffi::shim()
-            .config_contents()
+            .config_contents(write_invisible)
             .ok_or_else(|| "the parser could not write the configuration".to_string())?;
         let mut text = header.to_vec();
         text.extend(contents);

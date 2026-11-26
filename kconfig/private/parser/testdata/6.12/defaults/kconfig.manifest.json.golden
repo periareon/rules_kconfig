@@ -6,7 +6,12 @@
     "drivers/b/Kconfig",
     "extra/Kconfig.extra"
   ],
+  "srctree": "<srctree>",
   "kconfig_version": "6.12",
   "parser_version": "6.12",
-  "config": "rendered.config"
+  "config": "rendered.config",
+  "shell": {
+    "echo 7": "7\n",
+    "echo from-shell": "from-shell\n"
+  }
 }

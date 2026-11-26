@@ -66,10 +66,6 @@ load(
     _kconfig_repository = "kconfig_repository",
 )
 load(
-    ":kconfig_toolchain.bzl",
-    _kconfig_toolchain = "kconfig_toolchain",
-)
-load(
     ":make_variable_setting.bzl",
     _make_variable_setting = "make_variable_setting",
 )
@@ -82,7 +78,6 @@ kconfig = _kconfig
 kconfig_library = _kconfig_library
 kconfig_overrides_repository = _kconfig_overrides_repository
 kconfig_repository = _kconfig_repository
-kconfig_toolchain = _kconfig_toolchain
 KConfigInfo = _KConfigInfo
 KconfigSettingsInfo = _KconfigSettingsInfo
 make_variable_setting = _make_variable_setting

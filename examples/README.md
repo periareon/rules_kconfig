@@ -60,8 +60,10 @@ rejects the tree.
 
 ## upstream
 
-The Kconfig trees of Linux 6.12 and U-Boot v2025.10, each generated into
-repositories for a few defconfigs and compared with what the tree's own
-`conf` writes for them; the regression tests of the parser against the trees
-it is meant for. See [upstream/README.md](upstream/README.md). Linux and
-macOS only, and the kernel's tarball is 148 MB.
+The Kconfig trees of Linux 6.12, U-Boot v2025.10 and BusyBox 1.37.0, each a
+`kconfig.repo` as the tree's own module would declare it, with its
+configurations as `kconfig.overrides` layered on it from the tree's
+defconfigs, and every one compared with what the tree's own `conf` writes;
+the regression tests of the parser against the trees it is meant for. See
+[upstream/README.md](upstream/README.md). Linux and macOS only, and the
+kernel's tarball is 148 MB.

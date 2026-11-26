@@ -1,9 +1,0 @@
-# Development requirements
-
--r ../../kconfig/requirements.in
-
-black
-isort
-mypy
-pylint
-pytest-cov

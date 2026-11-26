@@ -3,6 +3,7 @@
   "files": [
     "Kconfig"
   ],
+  "srctree": "<srctree>",
   "kconfig_version": "6.12",
   "parser_version": "6.12"
 }

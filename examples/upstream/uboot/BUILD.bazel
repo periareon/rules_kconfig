@@ -1,5 +1,6 @@
-# U-Boot v2025.10: the repositories generated from its Kconfig tree against
-# U-Boot's own `conf`, and the `config.h` they provide.
+# U-Boot v2025.10: the repository generated from its Kconfig tree and the
+# boards' overrides on it, against U-Boot's own `conf`, and the `config.h`
+# they provide.
 
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//:defs.bzl", "kconfig_conf_test")
@@ -8,17 +9,17 @@ load(":env.bzl", "U_BOOT_ENV")
 [
     kconfig_conf_test(
         name = name,
-        srcs = "@u_boot//:kconfig_files",
-        conf = "@u_boot//:conf",
+        srcs = "@u_boot_src//:kconfig_files",
+        conf = "@u_boot_src//:conf",
         defconfig = defconfig,
         env = U_BOOT_ENV,
-        kconfig = "@u_boot//:Kconfig",
+        kconfig = "@u_boot_src//:Kconfig",
         repo = repo,
     )
     for name, repo, defconfig in [
-        ("qemu_arm64_defconfig", "@u_boot_qemu_arm64", "@u_boot//:configs/qemu_arm64_defconfig"),
-        ("qemu_x86_64_defconfig", "@u_boot_qemu_x86_64", "@u_boot//:configs/qemu-x86_64_defconfig"),
-        ("alldefconfig", "@u_boot_alldefconfig", None),
+        ("qemu_arm64_defconfig", "@u_boot_qemu_arm64", "@u_boot_src//:configs/qemu_arm64_defconfig"),
+        ("qemu_x86_64_defconfig", "@u_boot_qemu_x86_64", "@u_boot_src//:configs/qemu-x86_64_defconfig"),
+        ("alldefconfig", "@u_boot", None),
     ]
 ]
 

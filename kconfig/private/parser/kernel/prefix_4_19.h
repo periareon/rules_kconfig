@@ -197,6 +197,8 @@
 #define kconfig_host_strndup v4_19_kconfig_host_strndup
 #define kconfig_host_unlink v4_19_kconfig_host_unlink
 #define kconfig_host_vfprintf v4_19_kconfig_host_vfprintf
+#define kconfig_host_write_invisible v4_19_kconfig_host_write_invisible
+#define kconfig_host_write_unset v4_19_kconfig_host_write_unset
 #define kconfig_shim_vtable v4_19_kconfig_shim_vtable
 
 #endif

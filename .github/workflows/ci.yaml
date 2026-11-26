@@ -58,8 +58,8 @@ jobs:
   # The examples, each on the default Bazel with the native build of the
   # parser for the host (a source checkout carries none, so the one
   # `ci-tool-build` made is named with `RULES_KCONFIG_TOOL`). `upstream`
-  # fetches the Linux and U-Boot trees and runs their scripts, so not on
-  # Windows.
+  # fetches the Linux, U-Boot and BusyBox trees and runs their scripts, so
+  # not on Windows.
   ci-examples:
     runs-on: ${{ matrix.os }}
     needs:
@@ -291,9 +291,9 @@ jobs:
               --repo_env=RULES_KCONFIG_WASM="${RUNNER_TEMP}/kconfig_wasm/kconfig.wasm")
             echo "::endgroup::"
           done
-      # The Linux and U-Boot trees through the module: interpreted, the
-      # kernel's tree takes the module a few minutes per repository, so on
-      # Linux only.
+      # The Linux, U-Boot and BusyBox trees through the module: interpreted,
+      # the kernel's tree takes the module a few minutes per repository, so
+      # on Linux only.
       - name: Generate the upstream repositories with the module (Linux)
         if: startswith(runner.os, 'Linux')
         run: |

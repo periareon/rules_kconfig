@@ -68,7 +68,8 @@ kconfig_savedefconfig(
 const KCONFIG_LIBRARY_TEMPLATE: &str = r#"load("@rules_kconfig//kconfig:kconfig_library.bzl", "kconfig_library")
 
 kconfig_library(
-    name = "lib",
+    name = "lib",{env}
+    kconfig_version = "{kconfig_version}",
     root = "kconfig_srcs/{root}",
     srcs = glob(["kconfig_srcs/**"]),
     visibility = ["//visibility:public"],
@@ -200,6 +201,10 @@ pub struct Request<'a> {
     /// `CONFIG_*` names mapped to the values to generate `config_setting`s
     /// for, as given.
     pub settings_options: Option<&'a Map<String, Vec<String>>>,
+    /// Whether the symbols the configuration makes invisible are written
+    /// too, each in its place and with the type's empty value, as BusyBox's
+    /// kconfig does.
+    pub write_invisible: bool,
     /// The variables the `env` attribute gives the tree, for the manifest.
     pub env: &'a [(Vec<u8>, Vec<u8>)],
     /// The kernel release the consumer named, and the one this parser is
@@ -246,16 +251,34 @@ fn lines(items: impl Iterator<Item = Vec<u8>>) -> Vec<u8> {
     items.collect::<Vec<_>>().join(&b"\n"[..])
 }
 
-fn render_build_file(
-    settings: &[Setting],
-    repo_name: &[u8],
-    root_file: &[u8],
-    labels: &[(Vec<u8>, Vec<u8>)],
-    config_ws_path: Option<&[u8]>,
-) -> Vec<u8> {
+fn render_build_file(settings: &[Setting], root_file: &[u8], request: &Request) -> Vec<u8> {
+    let repo_name = request.repo_name;
+    let labels = request.settings_labels;
+    let config_ws_path = request.config_ws_path;
+    let write_invisible = request.write_invisible;
+    let kconfig_version = request.kconfig_version;
+    let env = request.env;
     if settings.is_empty() {
         return b"# No Kconfig symbols found.\n".to_vec();
     }
+    // The tree's variables, as `kconfig.repo` was given them, for the
+    // library's `env`; the attribute only where there are any.
+    let env_attr = if env.is_empty() {
+        Vec::new()
+    } else {
+        let mut out = b"\n    env = {\n".to_vec();
+        for (name, value) in env {
+            out.extend(render::concat(&[
+                b"        \"",
+                &render::escape_starlark(name),
+                b"\": \"",
+                &render::escape_starlark(value),
+                b"\",\n",
+            ]));
+        }
+        out.extend_from_slice(b"    },");
+        out
+    };
     let label_of = |setting: &Setting| {
         labels
             .iter()
@@ -293,6 +316,7 @@ fn render_build_file(
         repo_name.to_vec(),
         b"kconfig.manifest.json".to_vec(),
         b"rendered.config".to_vec(),
+        b"config.h.in".to_vec(),
     ];
     for name in &mut exported {
         name.insert(0, b'"');
@@ -352,11 +376,12 @@ fn render_build_file(
         ])
     }));
     // The symbols the configuration gives no value, which `autoconf.h`
-    // leaves undefined; the attribute only where there are any.
+    // leaves undefined; the attribute only where there are any, and not
+    // when every symbol is written.
     let unset_lines = lines(
         settings
             .iter()
-            .filter(|s| !s.written)
+            .filter(|s| !s.written && !write_invisible)
             .map(|s| render::concat(&[b"        \"CONFIG_", &s.name, b"\","])),
     );
     let unset_str = if unset_lines.is_empty() {
@@ -376,7 +401,11 @@ fn render_build_file(
     ));
     out.extend(render::template(
         KCONFIG_LIBRARY_TEMPLATE,
-        &[("root", root_file)],
+        &[
+            ("env", &env_attr),
+            ("kconfig_version", kconfig_version),
+            ("root", root_file),
+        ],
     ));
     if let Some(config_ws_path) = config_ws_path {
         out.extend(render::template(
@@ -462,14 +491,17 @@ fn object(pairs: &[(Vec<u8>, Vec<u8>)]) -> Value {
 
 /// The manifest: the root and every Kconfig file, relative to `srctree`,
 /// and what an overrides repository needs to parse the tree again the same
-/// way: the version, the labeled settings and the tree's variables.
+/// way: the tree's path, so that the files it reads and the paths its
+/// `$(shell,...)` commands name are the same (the repository holds the
+/// Kconfig files only, not the scripts the commands run), the version, the
+/// labeled settings, the tree's variables, what the commands answered and
+/// whether the invisible symbols are written.
 fn build_manifest(
     filenames: &[Vec<u8>],
     srctree: &[u8],
-    versions: (&[u8], &[u8]),
+    request: &Request,
     has_defaults: bool,
-    settings_labels: &[(Vec<u8>, Vec<u8>)],
-    env: &[(Vec<u8>, Vec<u8>)],
+    shell: &[(Vec<u8>, Vec<u8>)],
 ) -> Result<Value, String> {
     let mut files = Vec::new();
     for filename in filenames {
@@ -491,17 +523,30 @@ fn build_manifest(
             b"files".to_vec(),
             Value::Array(unique.into_iter().map(Value::Str).collect()),
         ),
-        (b"kconfig_version".to_vec(), Value::Str(versions.0.to_vec())),
-        (b"parser_version".to_vec(), Value::Str(versions.1.to_vec())),
+        (b"srctree".to_vec(), Value::Str(paths::host(srctree))),
+        (
+            b"kconfig_version".to_vec(),
+            Value::Str(request.kconfig_version.to_vec()),
+        ),
+        (
+            b"parser_version".to_vec(),
+            Value::Str(request.parser_version.to_vec()),
+        ),
     ];
     if has_defaults {
         manifest.push((b"config".to_vec(), Value::str("rendered.config")));
     }
-    if !settings_labels.is_empty() {
-        manifest.push((b"settings_labels".to_vec(), object(settings_labels)));
+    if !request.settings_labels.is_empty() {
+        manifest.push((b"settings_labels".to_vec(), object(request.settings_labels)));
     }
-    if !env.is_empty() {
-        manifest.push((b"env".to_vec(), object(env)));
+    if !request.env.is_empty() {
+        manifest.push((b"env".to_vec(), object(request.env)));
+    }
+    if !shell.is_empty() {
+        manifest.push((b"shell".to_vec(), object(shell)));
+    }
+    if request.write_invisible {
+        manifest.push((b"write_invisible".to_vec(), Value::Bool(true)));
     }
     Ok(Value::Object(manifest))
 }
@@ -524,6 +569,7 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
     }
 
     ffi::complete_round()?;
+    let shell = ffi::with(|session| session.host.shell_answers());
 
     let filenames = kconf.kconfig_filenames();
     let cache = settings::read_source_files(&filenames, &srctree, |path| {
@@ -537,14 +583,7 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
     let settings =
         settings::collect_settings(&kconf, &cache, has_defaults, &labeled, &parser_srctree)?;
 
-    let manifest = build_manifest(
-        &filenames,
-        &srctree,
-        (request.kconfig_version, request.parser_version),
-        has_defaults,
-        request.settings_labels,
-        request.env,
-    )?;
+    let manifest = build_manifest(&filenames, &srctree, request, has_defaults, &shell)?;
     let root = manifest
         .get("root")
         .and_then(Value::as_str)
@@ -576,18 +615,12 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
     };
 
     let header = ffi::with(|session| session.getenv(b"KCONFIG_CONFIG_HEADER")).unwrap_or_default();
-    let rendered_config = kconf.config_contents(&header)?;
+    let rendered_config = kconf.config_contents(&header, request.write_invisible)?;
 
     let mut manifest_json = manifest.dump_indented(2)?;
     manifest_json.push(b'\n');
     Ok(Outputs {
-        build: render_build_file(
-            &settings,
-            request.repo_name,
-            &root,
-            request.settings_labels,
-            request.config_ws_path,
-        ),
+        build: render_build_file(&settings, &root, request),
         manifest,
         manifest_json,
         config_h_in: render_config_h_in(&settings),

@@ -1,13 +1,16 @@
-load("@rules_venv//python:py_test.bzl", "py_test")
+load("@rules_rust//rust:defs.bzl", "rust_test")
 
-py_test(
+rust_test(
     name = "version_test",
-    srcs = ["version_test.py"],
+    size = "small",
+    srcs = ["version_test.rs"],
     data = [
         "//:MODULE.bazel",
         "//:version.bzl",
     ],
-    deps = [
-        "@rules_venv//python/runfiles",
-    ],
+    env = {
+        "MODULE_BAZEL": "$(rlocationpath //:MODULE.bazel)",
+        "VERSION_BZL": "$(rlocationpath //:version.bzl)",
+    },
+    deps = ["@rules_rust//rust/runfiles"],
 )

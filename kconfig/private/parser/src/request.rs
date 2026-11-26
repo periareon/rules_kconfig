@@ -73,6 +73,11 @@ pub struct Request {
     /// `CONFIG_*` names mapped to the values to generate `config_setting`s for.
     #[serde(default)]
     pub settings_options: Option<Map<String, Vec<String>>>,
+    /// Whether the symbols the configuration makes invisible are written to
+    /// `rendered.config` and defined in `config.h`, as BusyBox's kconfig
+    /// does; the Linux tools leave them out.
+    #[serde(default)]
+    pub write_invisible: bool,
     /// The variables the repository rule's `env` attribute gives the tree,
     /// recorded in the manifest for the overrides layered on the repository.
     /// Starlark has merged them into `env` already.

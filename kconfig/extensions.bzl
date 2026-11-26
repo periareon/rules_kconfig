@@ -2,7 +2,6 @@
 
 load("//kconfig:kconfig_overrides_repository.bzl", "kconfig_overrides_repository")
 load("//kconfig:kconfig_repository.bzl", "kconfig_repository")
-load("//kconfig/private:kconfiglib.bzl", "kconfiglib_repository")
 load("//kconfig/private:parser_backend.bzl", "kconfig_parser_repository", "parser_location", "tool_filename")
 load("//kconfig/private:versions.bzl", "DEFAULT_KCONFIG_VERSION", "PARSER_VERSIONS", "parser_version")
 load("//kconfig/private/parser/kernel:repository.bzl", "kernel_kconfig_repository", "kernel_kconfig_repository_name")
@@ -11,7 +10,7 @@ _KCONFIG_VERSION_DOC = """\
 The kernel release the tree is written for: `{default}` (the default), `6.12.7`,
 `4.19`. Kconfig has no version of its own, so this is the release of the
 kernel tree, or the one a project's copy of `scripts/kconfig` was synced
-from (U-Boot: `4.19`). The tree is parsed and resolved as that release's
+from. The tree is parsed and resolved as that release's
 `conf` would, by the newest parser rules_kconfig builds at or below the
 version ({parsers}); a version below the oldest is an error. The version is
 recorded in the manifest, and the overrides layered on the repository use
@@ -21,7 +20,7 @@ the same.
     parsers = ", ".join(["`{}`".format(v) for v in PARSER_VERSIONS]),
 )
 
-_LOAD = tag_class(
+_REPO = tag_class(
     doc = "Declare a kconfig repository to be generated from a Kconfig file tree.",
     attrs = {
         "defaults": attr.label(
@@ -71,6 +70,18 @@ like compiler version).
             doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
             default = {},
         ),
+        "write_invisible": attr.bool(
+            doc = """\
+Write the symbols the configuration makes invisible (no prompt applies and
+no default does) too: to `rendered.config`, each in its place, as
+`# CONFIG_X is not set` or with the type's empty value (`CONFIG_X=""`,
+`CONFIG_X=0`), and to `config.h` as that value, so that a `string` or `int`
+is defined, an empty one. The kernel's tools leave such a symbol out of
+`.config` and `autoconf.h`, so that `#ifdef` can tell; for sources that
+expect a `CONFIG_X` for every symbol, as BusyBox's `conf` writes it.
+""",
+            default = False,
+        ),
     },
 )
 
@@ -93,11 +104,6 @@ _OVERRIDES = tag_class(
 )
 
 def _kconfig_impl(module_ctx):
-    # kconfiglib, for `menuconfig`.
-    kconfiglib_repository(
-        name = "kconfiglib",
-    )
-
     # The kernel's parser of each release, for building the parser; fetched
     # only when it is.
     for version in PARSER_VERSIONS:
@@ -108,26 +114,28 @@ def _kconfig_impl(module_ctx):
 
     # The parser's builds of this release the host can use, or the ones
     # `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name; fetched only when a
-    # repository is generated with them.
+    # repository is generated with them, or `menuconfig` runs the native
+    # build as its launcher. The repository is always declared, as
+    # rules_kconfig's MODULE.bazel imports it for `menuconfig`.
     wasm_module = None
     tool = None
     location = parser_location(module_ctx)
-    if location.wasm != None or location.tool != None:
-        wasm = location.wasm or struct(url = None, integrity = "", path = None)
-        native = location.tool or struct(url = None, integrity = "", path = None)
-        kconfig_parser_repository(
-            name = "kconfig_parser",
-            tool_integrity = native.integrity,
-            tool_path = native.path,
-            tool_url = native.url,
-            wasm_integrity = wasm.integrity,
-            wasm_path = wasm.path,
-            wasm_url = wasm.url,
-        )
-        if location.wasm != None:
-            wasm_module = "@kconfig_parser//:kconfig.wasm"
-        if location.tool != None:
-            tool = "@kconfig_parser//:" + tool_filename(module_ctx)
+    none = struct(url = None, integrity = "", path = None)
+    wasm = location.wasm or none
+    native = location.tool or none
+    kconfig_parser_repository(
+        name = "kconfig_parser",
+        tool_integrity = native.integrity,
+        tool_path = native.path,
+        tool_url = native.url,
+        wasm_integrity = wasm.integrity,
+        wasm_path = wasm.path,
+        wasm_url = wasm.url,
+    )
+    if location.wasm != None:
+        wasm_module = "@kconfig_parser//:kconfig.wasm"
+    if location.tool != None:
+        tool = "@kconfig_parser//:" + tool_filename(module_ctx)
 
     for module in module_ctx.modules:
         for tag in getattr(module.tags, "repo", []):
@@ -148,6 +156,7 @@ def _kconfig_impl(module_ctx):
                 settings_labels = settings_labels,
                 settings_options = tag.settings_options,
                 tool = tool,
+                write_invisible = tag.write_invisible,
                 wasm_module = wasm_module,
             )
 
@@ -167,6 +176,6 @@ kconfig = module_extension(
     implementation = _kconfig_impl,
     tag_classes = {
         "overrides": _OVERRIDES,
-        "repo": _LOAD,
+        "repo": _REPO,
     },
 )

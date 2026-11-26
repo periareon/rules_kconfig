@@ -1,0 +1,38 @@
+# BusyBox 1.37.0: the repository generated from its Config.in tree and the
+# configs' overrides on it, against BusyBox's own `conf`, and the `config.h`
+# they provide.
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//:defs.bzl", "kconfig_conf_test")
+load(":env.bzl", "BUSYBOX_ENV")
+
+[
+    kconfig_conf_test(
+        name = name,
+        srcs = "@busybox_src//:kconfig_files",
+        conf = "@busybox_src//:conf",
+        defconfig = defconfig,
+        env = BUSYBOX_ENV,
+        kconfig = "@busybox_src//:Config.in",
+        old_conf = True,
+        repo = repo,
+    )
+    for name, repo, defconfig in [
+        ("defconfig", "@busybox", None),
+        ("nommu_defconfig", "@busybox_nommu", "@busybox_src//:configs/TEST_nommu_defconfig"),
+        ("freebsd_defconfig", "@busybox_freebsd", "@busybox_src//:configs/freebsd_defconfig"),
+    ]
+]
+
+[
+    cc_test(
+        name = name + "_config_h_test",
+        srcs = ["test_config.c"],
+        local_defines = [expect],
+        deps = [repo + "//:config"],
+    )
+    for name, repo, expect in [
+        ("defconfig", "@busybox", "EXPECT_DEFCONFIG"),
+        ("nommu_defconfig", "@busybox_nommu", "EXPECT_NOMMU"),
+    ]
+]

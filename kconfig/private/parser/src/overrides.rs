@@ -84,11 +84,16 @@ pub struct Request<'a> {
     /// The canonical repository prefix of the source kconfig repository.
     pub kconfig_repo: &'a [u8],
     /// The workspace-relative path of `config`, for the `menuconfig` target.
-    pub config_ws_path: &'a [u8],
+    /// The `.config` relative to the root workspace, for a `menuconfig`
+    /// target; None where the file is not the root module's.
+    pub config_ws_path: Option<&'a [u8]>,
     /// The rendered `.config` of the source repository, if it had defaults.
     pub base_config: Option<&'a [u8]>,
     /// `CONFIG_*` names provided by user rules, skipped in transitions.
     pub settings_labels: &'a [(Vec<u8>, Vec<u8>)],
+    /// Whether the source repository writes the invisible symbols too (its
+    /// manifest's `write_invisible`); `rendered.config` then does the same.
+    pub write_invisible: bool,
 }
 
 pub struct Outputs {
@@ -188,14 +193,16 @@ pub fn generate(request: &Request) -> Result<Outputs, String> {
         BUILD_BODY_TEMPLATE,
         &[("kconfig_repo", request.kconfig_repo)],
     ));
-    build.push(b'\n');
-    build.extend(render::template(
-        MENUCONFIG_TEMPLATE,
-        &[("config_ws_path", request.config_ws_path)],
-    ));
+    if let Some(config_ws_path) = request.config_ws_path {
+        build.push(b'\n');
+        build.extend(render::template(
+            MENUCONFIG_TEMPLATE,
+            &[("config_ws_path", config_ws_path)],
+        ));
+    }
 
     let header = ffi::with(|session| session.getenv(b"KCONFIG_CONFIG_HEADER")).unwrap_or_default();
-    let rendered_config = kconf.config_contents(&header)?;
+    let rendered_config = kconf.config_contents(&header, request.write_invisible)?;
 
     Ok(Outputs {
         defs: render::template(

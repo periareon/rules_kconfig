@@ -10,6 +10,25 @@ diff --git a/confdata.c b/confdata.c
  	if (!conf_get_changed())
  		sym_clear_all_valid();
  
+@@ -850,8 +848,17 @@
+ 		} else if (!sym_is_choice(sym) &&
+ 			   !(sym->flags & SYMBOL_WRITTEN)) {
+ 			sym_calc_value(sym);
+-			if (!(sym->flags & SYMBOL_WRITE))
++			if (!(sym->flags & SYMBOL_WRITE)) {
++				if (!kconfig_host_write_invisible)
++					goto next;
++				if (need_newline) {
++					fprintf(out, "\n");
++					need_newline = false;
++				}
++				sym->flags |= SYMBOL_WRITTEN;
++				kconfig_host_write_unset(out, sym);
+ 				goto next;
++			}
+ 			if (need_newline) {
+ 				fprintf(out, "\n");
+ 				need_newline = false;
 diff --git a/lexer.l b/lexer.l
 --- a/lexer.l
 +++ b/lexer.l

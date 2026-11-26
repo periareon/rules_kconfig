@@ -1,5 +1,6 @@
-# Linux 6.12: the repositories generated from its Kconfig tree against the
-# kernel's own `conf`, and the `config.h` they provide.
+# Linux 6.12: the repositories generated from its Kconfig tree, the x86 and
+# arm64 bases and the x86_64_defconfig overrides, against the kernel's own
+# `conf`, and the `config.h` they provide.
 
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_kconfig//kconfig:defs.bzl", "make_variable_setting")
@@ -10,7 +11,8 @@ exports_files(glob(["configs/*"]))
 
 # The C compiler of the toolchain Bazel resolves for the build, which
 # `settings_labels` in MODULE.bazel makes CONFIG_CC_VERSION_TEXT of
-# @linux_x86_64, where the repository rule only knew the probes' dummy gcc.
+# @linux_x86, where the repository rule only knew the probes' dummy gcc; the
+# overrides layered on it skip a labeled setting.
 make_variable_setting(
     name = "cc_path",
     expression = "$(CC)",
@@ -21,16 +23,16 @@ make_variable_setting(
 [
     kconfig_conf_test(
         name = name,
-        srcs = "@linux//:kconfig_files",
-        conf = "@linux//:conf",
+        srcs = "@linux_src//:kconfig_files",
+        conf = "@linux_src//:conf",
         defconfig = defconfig,
         env = linux_env(arch),
-        kconfig = "@linux//:Kconfig",
+        kconfig = "@linux_src//:Kconfig",
         repo = repo,
     )
     for name, repo, arch, defconfig in [
         ("x86_64_defconfig", "@linux_x86_64", "x86", ":configs/x86_64_defconfig"),
-        ("x86_64_alldefconfig", "@linux_x86_64_alldefconfig", "x86", None),
+        ("x86_64_alldefconfig", "@linux_x86", "x86", None),
         ("arm64_defconfig", "@linux_arm64", "arm64", ":configs/arm64_defconfig"),
     ]
 ]

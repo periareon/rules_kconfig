@@ -182,22 +182,73 @@ def _fetch(repository_ctx, env, url, integrity, path, output, executable):
         return []
     return [output]
 
+# The BUILD file of the `kconfig_parser` repository: the builds it holds, and
+# `tool`, the native build under one name on every platform, which the
+# `menuconfig` rule runs as its launcher (`kconfig_tool menuconfig`).
+_BUILD_TEMPLATE = """\
+exports_files({files})
+
+{tool}"""
+
+_TOOL_TEMPLATE = """\
+# The native build of the parser, the launcher of `menuconfig`.
+alias(
+    name = "tool",
+    actual = ":{tool}",
+    visibility = ["//visibility:public"],
+)
+"""
+
+# Without a native build there is no launcher: the target is incompatible, so
+# that `//...` skips a `menuconfig` and `bazel run` names this target as the
+# reason, rather than an error at analysis.
+_NO_TOOL_TEMPLATE = """\
+# No native build of the parser for this host: a release has none, or this
+# checkout of rules_kconfig has not named one with {env}. `menuconfig` cannot
+# run, and is incompatible.
+filegroup(
+    name = "tool",
+    target_compatible_with = ["@platforms//:incompatible"],
+    visibility = ["//visibility:public"],
+)
+"""
+
 def _kconfig_parser_repository_impl(repository_ctx):
     attr = repository_ctx.attr
     files = _fetch(repository_ctx, MODULE_ENV, attr.wasm_url, attr.wasm_integrity, attr.wasm_path, "kconfig.wasm", False)
-    files += _fetch(repository_ctx, TOOL_ENV, attr.tool_url, attr.tool_integrity, attr.tool_path, tool_filename(repository_ctx), True)
-    repository_ctx.file("BUILD.bazel", "exports_files({})\n".format(json.encode(files)))
+    tool = tool_filename(repository_ctx)
+    files += _fetch(repository_ctx, TOOL_ENV, attr.tool_url, attr.tool_integrity, attr.tool_path, tool, True)
+    if tool in files:
+        tool_target = _TOOL_TEMPLATE.format(tool = tool)
+    else:
+        tool_target = _NO_TOOL_TEMPLATE.format(env = TOOL_ENV)
+    repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
+        files = json.encode(files),
+        tool = tool_target,
+    ))
 
 kconfig_parser_repository = repository_rule(
     doc = "Holds the parser's builds the host can use, the WebAssembly module and the native build, downloaded from a release or taken from local builds.",
     implementation = _kconfig_parser_repository_impl,
     attrs = {
-        "tool_integrity": attr.string(doc = "The expected integrity of the native build at `tool_url`; may be empty."),
-        "tool_path": attr.string(doc = "The absolute path of a native build, used instead of `tool_url`."),
-        "tool_url": attr.string(doc = "Where to download the native build from."),
-        "wasm_integrity": attr.string(doc = "The expected integrity of the module at `wasm_url`; may be empty."),
-        "wasm_path": attr.string(doc = "The absolute path of a module, used instead of `wasm_url`."),
-        "wasm_url": attr.string(doc = "Where to download the module from."),
+        "tool_integrity": attr.string(
+            doc = "The expected integrity of the native build at `tool_url`; may be empty.",
+        ),
+        "tool_path": attr.string(
+            doc = "The absolute path of a native build, used instead of `tool_url`.",
+        ),
+        "tool_url": attr.string(
+            doc = "Where to download the native build from.",
+        ),
+        "wasm_integrity": attr.string(
+            doc = "The expected integrity of the module at `wasm_url`; may be empty.",
+        ),
+        "wasm_path": attr.string(
+            doc = "The absolute path of a module, used instead of `wasm_url`.",
+        ),
+        "wasm_url": attr.string(
+            doc = "Where to download the module from.",
+        ),
     },
 )
 
@@ -358,7 +409,7 @@ def _seed_tree(repository_ctx, request, srctree):
                 record("files", entry, _stat(repository_ctx, str(entry)))
     fail("{} has more than {} directories".format(srctree, _MAX_TREE_DIRS))
 
-def host_independent(request):
+def host_independent(request, replayed = {}):
     """Whether a finished request took nothing from the host but its files.
 
     Files and environment variables are recorded inputs, so a repository that
@@ -368,11 +419,13 @@ def host_independent(request):
 
     Args:
         request: The request `run_parser` finished with.
+        replayed: The `$(shell,...)` answers the request was given from a
+            manifest, which are a file's, not the host's.
 
     Returns:
         bool: Whether the repository is reproducible.
     """
-    return not request["shell"]
+    return not [command for command in request["shell"] if command not in replayed]
 
 def _stat(repository_ctx, path):
     """What the parser asks of a file: whether it exists, and its content."""

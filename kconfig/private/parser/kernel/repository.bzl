@@ -1,4 +1,5 @@
-"""The kernel's Kconfig parser, fetched for the parser builds, per version.
+"""The kernel's Kconfig parser, fetched for the parser builds, per version,
+and its `mconf`, for `menuconfig`.
 
 The parser rules_kconfig ships is the C implementation from Linux
 (`scripts/kconfig`, GPL-2.0), linked behind `kconfig/private/parser/shim.c`
@@ -13,8 +14,10 @@ prefix header (`prefix_<id>.h`) that renames its exported names.
 The host patch changes nothing in what the parser accepts or calculates: it
 makes the places where `conf` would `exit(1)` report to the host instead
 (`kconfig_host_fail`), with the message `conf` would print, so that the
-module returns an error; and it drops the heading `conf_write` puts at the
-top of a `.config`, which the generators write themselves. The libc calls
+module returns an error; it drops the heading `conf_write` puts at the top
+of a `.config`, which the generators write themselves; and, when the host
+asks (`write_invisible`), it has `conf_write` write the symbols it would
+leave out as well, each in its place (`kconfig_host_write_unset`). The libc calls
 the sources make for files, the environment and the shell are renamed to the
 shim's by `host.h`, which every source is compiled with (see the BUILD
 files).
@@ -23,6 +26,36 @@ files).
 load("//kconfig/private:versions.bzl", "PARSER_VERSIONS", "version_id")
 
 _URL = "https://raw.githubusercontent.com/torvalds/linux/{tag}/scripts/{path}"
+
+# The files of `mconf`, the kernel's menuconfig (scripts/kconfig/mconf.c
+# over the lxdialog widgets and the same parser), per version. They are
+# fetched unpatched under `menuconfig/`, with a second copy of the parser's
+# sources: the host patch is for the shim, and mconf is the program as
+# released, run by `menuconfig` on the machine `bazel run` is on.
+_MCONF = {
+    "4.19": {
+        "kconfig/lxdialog/checklist.c": "c7ef84cb4b8fa47bd70aa2e89f7b96b2487c7716e1b5b2f1cb1ba79217d70724",
+        "kconfig/lxdialog/dialog.h": "026a00fb501f44746f56af7a56ddead4ea6eee6bcd3dc2f2390caa11f0beba53",
+        "kconfig/lxdialog/inputbox.c": "8ef095a6b57a082d89d029c8da3fbdaa16e83a231ac0598623f67e07dc0895f4",
+        "kconfig/lxdialog/menubox.c": "5e9ff7e9200872abc7390c5d297e274043d86885477a10f8844e968e78dad359",
+        "kconfig/lxdialog/textbox.c": "8a665a7950e260d3e3207f0b792e6b99e8db28ecd3c0849653703c83ce995ab8",
+        "kconfig/lxdialog/util.c": "1412c8d13ec9ef79f4acf9e35ea467ef3c383f1950bcf16e231e5263334df5ff",
+        "kconfig/lxdialog/yesno.c": "5f1ca4233702a3badd507f56679c634cf4fb054ba662bd729712b2a68a705701",
+        "kconfig/mconf.c": "aabe589ae17664e728ff79415eb3a0fc28a7fce5898eb67c98eab9799fc9b9be",
+    },
+    "6.12": {
+        "kconfig/lxdialog/checklist.c": "a5fa74b3ccbbfe9e922f1826159df05a1cd1cc0530bfe2a952fb217b980339be",
+        "kconfig/lxdialog/dialog.h": "39813ccd980e42dc910b8070294d65ef38b76326ee229bcd2563d75028263337",
+        "kconfig/lxdialog/inputbox.c": "f89f112ae1222decf7507f2d038901374facb85120be740f7f9a97485d7d1afb",
+        "kconfig/lxdialog/menubox.c": "1d23e00503e424372a38a3ccd7abd759e9b2c01fb94b99b37b3957df05de1bbe",
+        "kconfig/lxdialog/textbox.c": "9d74ba950894702fec79e9c4462ec9c82c2e7f1f10e0b3d5bf93ea4a8c414806",
+        "kconfig/lxdialog/util.c": "1350741095ce907cfb2da13765cc169f3321d4b915954c9ef0ac57084cc049b6",
+        "kconfig/lxdialog/yesno.c": "4da4dec3cc1ee87b839ce3612c57e47976a658b3144d8b087b1e2621d5991134",
+        "kconfig/mconf.c": "27307b1f4d0ca3717ad2e1391e9697d34d9b90e84026a61c0ece22e3f84f6727",
+        "kconfig/mnconf-common.c": "0681901f2ccf1188d624407e0321952bff15989f34b6a583ba2fdee6128989a5",
+        "kconfig/mnconf-common.h": "8f24b6108b76594bfb50079623885e1e2ab12183fc182a28f6de4c6a8c861d06",
+    },
+}
 
 # Each version: the kernel tag, the files of the parser by path under
 # `scripts/` with their SHA-256, the host patch and the BUILD file. 6.12
@@ -99,6 +132,18 @@ def _kernel_kconfig_repository_impl(repository_ctx):
             sha256 = sha256,
         )
     repository_ctx.patch(kernel.patch, strip = 1)
+
+    # mconf: its own files, and the parser's as released, under menuconfig/.
+    # lxdialog includes <ncurses.h>, the name ncurses installs as an alias of
+    # curses.h; the registry's ncurses provides curses.h alone.
+    repository_ctx.file("menuconfig/ncurses.h", "#include <curses.h>\n")
+    for path, sha256 in list(_MCONF[version].items()) + list(kernel.files.items()):
+        output = path[len("kconfig/"):] if path.startswith("kconfig/") else path
+        repository_ctx.download(
+            url = _URL.format(tag = kernel.tag, path = path),
+            output = "menuconfig/" + output,
+            sha256 = sha256,
+        )
     major, minor = version.split(".")
     repository_ctx.template(
         "BUILD.bazel",

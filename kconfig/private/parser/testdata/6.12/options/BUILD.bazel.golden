@@ -1,5 +1,5 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag", "string_flag")
-exports_files(glob(["kconfig_srcs/**"]) + ["test_kconfig", "kconfig.manifest.json", "rendered.config"])
+exports_files(glob(["kconfig_srcs/**"]) + ["test_kconfig", "kconfig.manifest.json", "rendered.config", "config.h.in"])
 bool_flag(
     name = "CONFIG_FOO",
     build_setting_default = False,
@@ -196,6 +196,7 @@ load("@rules_kconfig//kconfig:kconfig_library.bzl", "kconfig_library")
 
 kconfig_library(
     name = "lib",
+    kconfig_version = "6.12",
     root = "kconfig_srcs/Kconfig",
     srcs = glob(["kconfig_srcs/**"]),
     visibility = ["//visibility:public"],

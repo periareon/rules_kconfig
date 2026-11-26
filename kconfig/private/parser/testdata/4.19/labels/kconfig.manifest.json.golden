@@ -6,10 +6,15 @@
     "drivers/b/Kconfig",
     "extra/Kconfig.extra"
   ],
+  "srctree": "<srctree>",
   "kconfig_version": "4.19",
   "parser_version": "4.19",
   "settings_labels": {
-    "CONFIG_TAINTED": "@//:tainted",
-    "CONFIG_COUNT": "@//:count"
+    "CONFIG_COUNT": "@//:count",
+    "CONFIG_TAINTED": "@//:tainted"
+  },
+  "shell": {
+    "echo 7": "7\n",
+    "echo from-shell": "from-shell\n"
   }
 }

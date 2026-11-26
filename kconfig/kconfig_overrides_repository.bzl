@@ -17,6 +17,13 @@ def _inputs(repository_ctx):
     manifest = json.decode(repository_ctx.read(manifest_path))
     kconfig_srcs = manifest_path.dirname.get_child("kconfig_srcs")
 
+    # The tree where the source repository read it, so that the files and
+    # the paths the probes' commands name are the same as its manifest
+    # records them; a manifest of a release before it names no tree, and the
+    # Kconfig files linked under kconfig_srcs/ stand in.
+    srctree = manifest.get("srctree")
+    srctree = repository_ctx.path(srctree) if srctree else kconfig_srcs
+
     # The version the source repository was generated with; a manifest of a
     # release before versions is of the default.
     kconfig_version = manifest.get("kconfig_version") or DEFAULT_KCONFIG_VERSION
@@ -30,23 +37,28 @@ def _inputs(repository_ctx):
     config_label = repository_ctx.attr.config
     return struct(
         manifest = manifest,
-        kconfig_srcs = kconfig_srcs,
-        kconfig_root = kconfig_srcs.get_child(manifest["root"]),
+        srctree = srctree,
+        kconfig_root = srctree.get_child(manifest["root"]),
         kconfig_repo = str(repository_ctx.attr.kconfig).split("//")[0],
         config = repository_ctx.path(config_label),
-        config_ws_path = (config_label.package + "/" + config_label.name).lstrip("/"),
+        # For the generated `menuconfig`, which edits a file of the root
+        # module's workspace only: None for a file of another repository.
+        config_ws_path = (config_label.package + "/" + config_label.name).lstrip("/") if config_label.repo_name == "" else None,
         base_config = base_config_path,
         settings_labels = manifest.get("settings_labels") or {},
-        # The variables the source repository gave the tree, and its version;
-        # it is parsed again with them.
+        # The variables the source repository gave the tree, its version,
+        # what the tree's `$(shell,...)` commands answered and whether it
+        # writes the invisible symbols; it is parsed again with them.
         env = manifest.get("env") or {},
         kconfig_version = kconfig_version,
+        shell = manifest.get("shell") or {},
+        write_invisible = manifest.get("write_invisible", False),
         parser_version = parser_version(kconfig_version, "the manifest of " + str(repository_ctx.attr.kconfig)),
     )
 
 def _generate_with_parser(repository_ctx, backend, inputs):
     """Run the parser, which reads the Kconfig tree through this rule."""
-    request = new_request(repository_ctx, "overrides", inputs.kconfig_root, inputs.kconfig_srcs, env = inputs.env)
+    request = new_request(repository_ctx, "overrides", inputs.kconfig_root, inputs.srctree, env = inputs.env)
     request["config"] = str(inputs.config)
     request["base_config"] = str(inputs.base_config) if inputs.base_config else None
     request["kconfig_repo"] = inputs.kconfig_repo
@@ -54,13 +66,20 @@ def _generate_with_parser(repository_ctx, backend, inputs):
     request["settings_labels"] = dict(inputs.settings_labels)
     request["kconfig_version"] = inputs.kconfig_version
     request["parser_version"] = inputs.parser_version
+    request["write_invisible"] = inputs.write_invisible
     seed_file(repository_ctx, request, inputs.config)
     if inputs.base_config:
         seed_file(repository_ctx, request, inputs.base_config)
 
+    # The probes answer as they did for the source repository: the
+    # configuration is the source's with other values, not another host's
+    # probes.
+    for command, stdout in inputs.shell.items():
+        request["shell"][command] = {"stdout": stdout}
+
     response = run_parser(repository_ctx, backend, request, env = inputs.env)
     write_files(repository_ctx, response["files"])
-    return host_independent(request)
+    return host_independent(request, replayed = inputs.shell)
 
 def _kconfig_overrides_repository_impl(repository_ctx):
     inputs = _inputs(repository_ctx)
@@ -84,12 +103,14 @@ kconfig_overrides_repository = repository_rule(
 Overlay .config values onto an existing kconfig repository.
 
 Reads the manifest from the source kconfig repository to locate the
-symlinked Kconfig source tree, then reparses it, with the parser of the
-`kconfig_version` the manifest records, as `kconfig_repository` did, with a
-user-provided `.config` file. If the source repository was itself
+Kconfig tree, then reparses it where the source repository read it, with the
+parser of the `kconfig_version` the manifest records, as `kconfig_repository`
+did, with a user-provided `.config` file. If the source repository was itself
 created with a `.config`, the overrides are stacked on top of those
-base values. Generates a `defs.bzl` containing a Starlark transition
-and wrapper rule that apply the overrides.
+base values. The tree's `$(shell,...)` commands answer as they did for the
+source repository, from its manifest, and `rendered.config` is written as
+the source repository's was (`write_invisible`). Generates a `defs.bzl`
+containing a Starlark transition and wrapper rule that apply the overrides.
 
 Values explicitly set on the command line take precedence over the overlay.
 

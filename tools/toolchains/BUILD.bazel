@@ -1,9 +1,3 @@
-load("@rules_venv//python/black:defs.bzl", "py_black_toolchain")
-load("@rules_venv//python/isort:defs.bzl", "py_isort_toolchain")
-load("@rules_venv//python/mypy:defs.bzl", "py_mypy_toolchain")
-load("@rules_venv//python/pylint:defs.bzl", "py_pylint_toolchain")
-load("@rules_venv//python/pytest:defs.bzl", "py_pytest_toolchain")
-
 package(default_visibility = ["//visibility:public"])
 
 # The host, compiling C with clang-cl: the kernel's parser is written for gcc
@@ -15,59 +9,4 @@ platform(
     name = "windows_clang_cl",
     constraint_values = ["@rules_cc//cc/private/toolchain:clang-cl"],
     parents = ["@platforms//host"],
-)
-
-py_black_toolchain(
-    name = "py_black_toolchain",
-    black = "@kconfig_pip_deps//black",
-)
-
-toolchain(
-    name = "black_toolchain",
-    toolchain = ":py_black_toolchain",
-    toolchain_type = "@rules_venv//python/black:toolchain_type",
-)
-
-py_isort_toolchain(
-    name = "py_isort_toolchain",
-    isort = "@kconfig_pip_deps//isort",
-)
-
-toolchain(
-    name = "isort_toolchain",
-    toolchain = ":py_isort_toolchain",
-    toolchain_type = "@rules_venv//python/isort:toolchain_type",
-)
-
-py_mypy_toolchain(
-    name = "py_mypy_toolchain",
-    mypy = "@kconfig_pip_deps//mypy",
-)
-
-toolchain(
-    name = "mypy_toolchain",
-    toolchain = ":py_mypy_toolchain",
-    toolchain_type = "@rules_venv//python/mypy:toolchain_type",
-)
-
-py_pylint_toolchain(
-    name = "py_pylint_toolchain",
-    pylint = "@kconfig_pip_deps//pylint",
-)
-
-toolchain(
-    name = "pylint_toolchain",
-    toolchain = ":py_pylint_toolchain",
-    toolchain_type = "@rules_venv//python/pylint:toolchain_type",
-)
-
-py_pytest_toolchain(
-    name = "py_pytest_toolchain",
-    pytest = "@kconfig_pip_deps//pytest_cov",
-)
-
-toolchain(
-    name = "pytest_toolchain",
-    toolchain = ":py_pytest_toolchain",
-    toolchain_type = "@rules_venv//python/pytest:toolchain_type",
 )
