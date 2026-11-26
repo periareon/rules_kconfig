@@ -105,7 +105,7 @@ generated repository carries what its `kconfig.repo` was given.
             allow_single_file = True,
         ),
         "srcs": attr.label_list(
-            doc = "Kconfig source files. Must be real (non-generated) files.",
+            doc = "Kconfig source files, and any script their `$(shell,...)` commands run, so that `menuconfig` has them. Must be real (non-generated) files.",
             allow_files = True,
         ),
     },

@@ -344,6 +344,13 @@ else comes from the `kconfig_library`: the files, the release
 which the `lib` of a generated repository carries as its `kconfig.repo` was
 given them.
 
+`mconf` runs over the library's files in the runfiles: the root's directory
+there is `$(srctree)` and the working directory, as the repository rule runs
+a tree's `$(shell,...)` commands. A tree whose Kconfig files run its own
+scripts lists them in the library's `srcs`. Everything is found through the
+runfiles and `BUILD_WORKSPACE_DIRECTORY`; no path is absolute or resolved
+through symlinks.
+
 A repository generated with `defaults`, and a `kconfig.overrides` over a
 `config`, have a `menuconfig` of their own over that file when it is the
 root module's: `bazel run @my_kconfig//:menuconfig`. The next build after a
