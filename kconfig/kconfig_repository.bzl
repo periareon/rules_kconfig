@@ -58,6 +58,68 @@ def _generate_with_parser(repository_ctx, backend, kconfig, repo_name):
         reproducible = host_independent(request),
     )
 
+# What a Kconfig file or a script of the tree runs or reads, by the forms the
+# kernel's and U-Boot's use: a path through `srctree`, or a sibling as
+# `$(dirname $0)/min-tool-version.sh`.
+_TREE_REFERENCES = ["$(srctree)/", "$srctree/", "${srctree}/"]
+_SIBLING_REFERENCE = "$(dirname $0)/"
+
+_WORD_END = [" ", "\t", "\n", ")", ",", "'", "\"", "$", ";", "|", "`"]
+
+def _words_after(text, marker):
+    """The words that follow `marker` in `text`, up to a shell delimiter."""
+    words = []
+    for part in text.split(marker)[1:]:
+        end = len(part)
+        for i in range(len(part)):
+            if part[i] in _WORD_END:
+                end = i
+                break
+        words.append(part[:end])
+    return words
+
+def _tree_files(repository_ctx, manifest, kconfig_dir):
+    """The tree's files its Kconfig files run or read, and what those run.
+
+    Read from the files, not from anything run: a `$(srctree)/path` in a
+    Kconfig file (`scripts/cc-version.sh` in the kernel's Kconfig.include),
+    then what that file names in turn (`$(dirname $0)/min-tool-version.sh`,
+    a path through `srctree`). Copied beside the Kconfig files so that
+    `menuconfig`, which does run `$(shell,...)`, finds them in the runfiles.
+
+    Args:
+        repository_ctx: The repository rule's context.
+        manifest: The parser's manifest, with `files`.
+        kconfig_dir: The directory of the root Kconfig, `$(srctree)`.
+
+    Returns:
+        list[str]: Tree-relative paths, sorted.
+    """
+    queue = []
+    for f in manifest["files"]:
+        text = repository_ctx.read(kconfig_dir.get_child(f))
+        for marker in _TREE_REFERENCES:
+            queue.extend(_words_after(text, marker))
+    found = {}
+    for _ in range(10000):
+        if not queue:
+            break
+        rel = queue.pop()
+        if rel in found or not rel:
+            continue
+        path = kconfig_dir.get_child(rel)
+        if not path.exists or path.is_dir:
+            continue
+        found[rel] = True
+        repository_ctx.watch(path)
+        text = repository_ctx.read(path)
+        directory = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        for word in _words_after(text, _SIBLING_REFERENCE):
+            queue.append(directory + "/" + word if directory else word)
+        for marker in _TREE_REFERENCES:
+            queue.extend(_words_after(text, marker))
+    return sorted(found.keys())
+
 def _kconfig_repository_impl(repository_ctx):
     kconfig = repository_ctx.path(repository_ctx.attr.kconfig)
     repo_name = repository_ctx.attr.apparent_name or repository_ctx.name
@@ -69,6 +131,9 @@ def _kconfig_repository_impl(repository_ctx):
         src = kconfig_dir.get_child(f)
         repository_ctx.watch(src)
         repository_ctx.symlink(src, "kconfig_srcs/" + f)
+    for f in _tree_files(repository_ctx, generated.manifest, kconfig_dir):
+        if f not in generated.manifest["files"]:
+            repository_ctx.symlink(kconfig_dir.get_child(f), "kconfig_srcs/" + f)
 
     repository_ctx.symlink(manifest_file, repo_name)
 

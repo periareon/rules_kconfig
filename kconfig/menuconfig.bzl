@@ -39,9 +39,20 @@ def _menuconfig_impl(ctx):
     args.add("--kconfig", _rlocationpath(kconfig_info.root, ctx.workspace_name))
     args.add("--mconf", _rlocationpath(mconf_binary, ctx.workspace_name))
     args.add("--config", ctx.attr.config)
-    for name, value in kconfig_info.env.items():
+
+    # The tree's variables are the library's with the target's over them: a
+    # name the target sets is this run's, whether the library gave it a
+    # value or a file.
+    env = dict(kconfig_info.env)
+    env.update(ctx.attr.env)
+    env_files = {
+        name: file
+        for name, file in kconfig_info.env_files.items()
+        if name not in ctx.attr.env
+    }
+    for name, value in env.items():
         args.add("--env", "{}={}".format(name, value))
-    for name, file in kconfig_info.env_files.items():
+    for name, file in env_files.items():
         args.add("--env-file", "{}={}".format(name, _rlocationpath(file, ctx.workspace_name)))
     args.set_param_file_format("multiline")
 
@@ -62,7 +73,7 @@ def _menuconfig_impl(ctx):
         is_executable = True,
     )
 
-    runfiles = ctx.runfiles(files = [args_file, mconf_binary] + kconfig_info.env_files.values())
+    runfiles = ctx.runfiles(files = [args_file, mconf_binary] + env_files.values())
     runfiles = runfiles.merge(ctx.attr.kconfig[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.attr._binary[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(mconf[DefaultInfo].default_runfiles)
@@ -88,7 +99,8 @@ that serves the release the tree is written for (`kconfig_version` of its
 `kconfig_library`), the code the kconfig repository rule reads the tree
 with, so what the TUI accepts and writes is what the build reads. The tree's
 variables (`env`, `env_labels` of the library) are set for it by a small
-C++ launcher built from source, with the toolchain `mconf` needs anyway.
+C++ launcher built from source, with the toolchain `mconf` needs anyway;
+the target's `env` is set over them, for a variable of this run only.
 
 `mconf` is a curses program over POSIX, so the target is for Linux and
 macOS: on Windows it is incompatible, which `//...` skips and `bazel run`
@@ -107,6 +119,9 @@ file when the file is the root module's.
         "config": attr.string(
             doc = "Workspace-relative path of the `.config` file to read and write; an existing file of the root module's workspace.",
             mandatory = True,
+        ),
+        "env": attr.string_dict(
+            doc = "Environment variables set for `mconf` over the library's (`env`, `env_labels`), by name: a tree variable for this target, or one `mconf` itself reads (`MENUCONFIG_COLOR`, `MENUCONFIG_MODE`).",
         ),
         "kconfig": attr.label(
             doc = "The `kconfig_library` of the tree: its files, release and variables.",
