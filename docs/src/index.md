@@ -349,14 +349,20 @@ file, so `menuconfig` edits a file of your own and nothing else. Everything
 else comes from the `kconfig_library`: the files, the release
 (`kconfig_version`) and the variables the tree reads (`env`, `env_labels`),
 which the `lib` of a generated repository carries as its `kconfig.repo` was
-given them.
+given them. The target's own `env` is set over the library's, for a variable
+of this run only: a tree variable with another value for this target, or
+one `mconf` itself reads, such as `MENUCONFIG_COLOR`.
 
 `mconf` runs over the library's files in the runfiles: the root's directory
 there is `$(srctree)` and the working directory, as the repository rule runs
 a tree's `$(shell,...)` commands. A tree whose Kconfig files run its own
-scripts lists them in the library's `srcs`. Everything is found through the
-runfiles and `BUILD_WORKSPACE_DIRECTORY`; no path is absolute or resolved
-through symlinks.
+scripts lists them in the library's `srcs`; a generated repository has
+them already: the repository rule copies the tree's files its Kconfig files
+name through `$(srctree)` (the kernel's `scripts/cc-version.sh`, U-Boot's
+`scripts/gcc-version.sh`), and what those name in turn, beside the Kconfig
+files, read from the files and not from running anything. Everything is found through the runfiles and
+`BUILD_WORKSPACE_DIRECTORY`; no path is absolute or resolved through
+symlinks.
 
 A repository generated with `defaults`, and a `kconfig.overrides` over a
 `config`, have a `menuconfig` of their own over that file when it is the
