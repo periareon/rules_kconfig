@@ -114,28 +114,26 @@ def _kconfig_impl(module_ctx):
 
     # The parser's builds of this release the host can use, or the ones
     # `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name; fetched only when a
-    # repository is generated with them, or `menuconfig` runs the native
-    # build as its launcher. The repository is always declared, as
-    # rules_kconfig's MODULE.bazel imports it for `menuconfig`.
+    # repository is generated with them.
     wasm_module = None
     tool = None
     location = parser_location(module_ctx)
-    none = struct(url = None, integrity = "", path = None)
-    wasm = location.wasm or none
-    native = location.tool or none
-    kconfig_parser_repository(
-        name = "kconfig_parser",
-        tool_integrity = native.integrity,
-        tool_path = native.path,
-        tool_url = native.url,
-        wasm_integrity = wasm.integrity,
-        wasm_path = wasm.path,
-        wasm_url = wasm.url,
-    )
-    if location.wasm != None:
-        wasm_module = "@kconfig_parser//:kconfig.wasm"
-    if location.tool != None:
-        tool = "@kconfig_parser//:" + tool_filename(module_ctx)
+    if location.wasm != None or location.tool != None:
+        wasm = location.wasm or struct(url = None, integrity = "", path = None)
+        native = location.tool or struct(url = None, integrity = "", path = None)
+        kconfig_parser_repository(
+            name = "kconfig_parser",
+            tool_integrity = native.integrity,
+            tool_path = native.path,
+            tool_url = native.url,
+            wasm_integrity = wasm.integrity,
+            wasm_path = wasm.path,
+            wasm_url = wasm.url,
+        )
+        if location.wasm != None:
+            wasm_module = "@kconfig_parser//:kconfig.wasm"
+        if location.tool != None:
+            tool = "@kconfig_parser//:" + tool_filename(module_ctx)
 
     for module in module_ctx.modules:
         for tag in getattr(module.tags, "repo", []):

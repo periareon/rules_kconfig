@@ -33,8 +33,8 @@ def _menuconfig_impl(ctx):
     mconf_binary = mconf[DefaultInfo].files_to_run.executable
     binary = ctx.executable._binary
 
-    # Read by the launcher, kconfig_tool (parser/src/menuconfig.rs): the
-    # files by runfiles path, and the tree's variables, a file's as its path.
+    # Read by the launcher (//kconfig/private/menuconfig): the files by
+    # runfiles path, and the tree's variables, a file's as its path.
     args = ctx.actions.args()
     args.add("--kconfig", _rlocationpath(kconfig_info.root, ctx.workspace_name))
     args.add("--mconf", _rlocationpath(mconf_binary, ctx.workspace_name))
@@ -51,11 +51,10 @@ def _menuconfig_impl(ctx):
         content = args,
     )
 
-    # The executable is the launcher itself, `kconfig_tool`, under the
-    # target's name, so that it finds the runfiles tree beside it by its
-    # argv[0] (`bazel run` unsets RUNFILES_DIR), and takes the arguments
-    # from the file RULES_KCONFIG_MENUCONFIG_ARGS_FILE names, on every
-    # platform alike.
+    # The executable is the launcher itself under the target's name, so that
+    # it finds the runfiles tree beside it by its argv[0] (`bazel run` unsets
+    # RUNFILES_DIR), and takes the arguments from the file
+    # RULES_KCONFIG_MENUCONFIG_ARGS_FILE names, on every platform alike.
     launcher = ctx.actions.declare_file("{}.{}".format(ctx.label.name, binary.extension).rstrip("."))
     ctx.actions.symlink(
         target_file = binary,
@@ -65,6 +64,7 @@ def _menuconfig_impl(ctx):
 
     runfiles = ctx.runfiles(files = [args_file, mconf_binary] + kconfig_info.env_files.values())
     runfiles = runfiles.merge(ctx.attr.kconfig[DefaultInfo].default_runfiles)
+    runfiles = runfiles.merge(ctx.attr._binary[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(mconf[DefaultInfo].default_runfiles)
 
     return [
@@ -87,13 +87,12 @@ Edit a `.config` interactively with `mconf`, the `make menuconfig` terminal UI.
 that serves the release the tree is written for (`kconfig_version` of its
 `kconfig_library`), the code the kconfig repository rule reads the tree
 with, so what the TUI accepts and writes is what the build reads. The tree's
-variables (`env`, `env_labels` of the library) are set for it. The launcher
-is the parser's native build, `kconfig_tool`, which a release ships for
-every platform.
+variables (`env`, `env_labels` of the library) are set for it by a small
+C++ launcher built from source, with the toolchain `mconf` needs anyway.
 
 `mconf` is a curses program over POSIX, so the target is for Linux and
-macOS: on Windows, and on a host the release has no native build of the
-parser for, it is incompatible, which `//...` skips and `bazel run` reports.
+macOS: on Windows it is incompatible, which `//...` skips and `bazel run`
+reports.
 
 Run with `bazel run`. The TUI reads and writes the file `config` names,
 relative to the root module's workspace, which must exist there: the
@@ -116,12 +115,9 @@ file when the file is the root module's.
         ),
         # The launcher and mconf run on the machine `bazel run` is on, whatever
         # `--platforms` the tree is built for: the execution configuration.
-        # The launcher is the native build of the parser the `kconfig`
-        # extension fetched for the host (`kconfig_tool menuconfig`).
         "_binary": attr.label(
-            default = Label("@kconfig_parser//:tool"),
+            default = Label("//kconfig/private/menuconfig"),
             executable = True,
-            allow_single_file = True,
             cfg = "exec",
         ),
         "_mconf": attr.label_list(

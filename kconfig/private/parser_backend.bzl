@@ -182,50 +182,11 @@ def _fetch(repository_ctx, env, url, integrity, path, output, executable):
         return []
     return [output]
 
-# The BUILD file of the `kconfig_parser` repository: the builds it holds, and
-# `tool`, the native build under one name on every platform, which the
-# `menuconfig` rule runs as its launcher (`kconfig_tool menuconfig`).
-_BUILD_TEMPLATE = """\
-exports_files({files})
-
-{tool}"""
-
-_TOOL_TEMPLATE = """\
-# The native build of the parser, the launcher of `menuconfig`.
-alias(
-    name = "tool",
-    actual = ":{tool}",
-    visibility = ["//visibility:public"],
-)
-"""
-
-# Without a native build there is no launcher: the target is incompatible, so
-# that `//...` skips a `menuconfig` and `bazel run` names this target as the
-# reason, rather than an error at analysis.
-_NO_TOOL_TEMPLATE = """\
-# No native build of the parser for this host: a release has none, or this
-# checkout of rules_kconfig has not named one with {env}. `menuconfig` cannot
-# run, and is incompatible.
-filegroup(
-    name = "tool",
-    target_compatible_with = ["@platforms//:incompatible"],
-    visibility = ["//visibility:public"],
-)
-"""
-
 def _kconfig_parser_repository_impl(repository_ctx):
     attr = repository_ctx.attr
     files = _fetch(repository_ctx, MODULE_ENV, attr.wasm_url, attr.wasm_integrity, attr.wasm_path, "kconfig.wasm", False)
-    tool = tool_filename(repository_ctx)
-    files += _fetch(repository_ctx, TOOL_ENV, attr.tool_url, attr.tool_integrity, attr.tool_path, tool, True)
-    if tool in files:
-        tool_target = _TOOL_TEMPLATE.format(tool = tool)
-    else:
-        tool_target = _NO_TOOL_TEMPLATE.format(env = TOOL_ENV)
-    repository_ctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
-        files = json.encode(files),
-        tool = tool_target,
-    ))
+    files += _fetch(repository_ctx, TOOL_ENV, attr.tool_url, attr.tool_integrity, attr.tool_path, tool_filename(repository_ctx), True)
+    repository_ctx.file("BUILD.bazel", "exports_files({})\n".format(json.encode(files)))
 
 kconfig_parser_repository = repository_rule(
     doc = "Holds the parser's builds the host can use, the WebAssembly module and the native build, downloaded from a release or taken from local builds.",
