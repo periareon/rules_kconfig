@@ -283,7 +283,7 @@ Make variable; see the documentation on <code>env</code> for those.</p>
 <pre>
 load("@rules_kconfig//kconfig:defs.bzl", "menuconfig")
 
-menuconfig(<a href="#menuconfig-name">name</a>, <a href="#menuconfig-config">config</a>, <a href="#menuconfig-kconfig">kconfig</a>)
+menuconfig(<a href="#menuconfig-name">name</a>, <a href="#menuconfig-config">config</a>, <a href="#menuconfig-env">env</a>, <a href="#menuconfig-kconfig">kconfig</a>)
 </pre>
 <p>Edit a <code>.config</code> interactively with <code>mconf</code>, the <code>make menuconfig</code> terminal UI.</p>
 <p><code>mconf</code> is built from the kernel's scripts/kconfig of the parser version
@@ -291,7 +291,8 @@ that serves the release the tree is written for (<code>kconfig_version</code> of
 <code>kconfig_library</code>), the code the kconfig repository rule reads the tree
 with, so what the TUI accepts and writes is what the build reads. The tree's
 variables (<code>env</code>, <code>env_labels</code> of the library) are set for it by a small
-C++ launcher built from source, with the toolchain <code>mconf</code> needs anyway.</p>
+C++ launcher built from source, with the toolchain <code>mconf</code> needs anyway;
+the target's <code>env</code> is set over them, for a variable of this run only.</p>
 <p><code>mconf</code> is a curses program over POSIX, so the target is for Linux and
 macOS: on Windows it is incompatible, which <code>//...</code> skips and <code>bazel run</code>
 reports.</p>
@@ -305,6 +306,7 @@ file when the file is the root module's.</p>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Name</th><th style="text-align: left">Description</th><th style="text-align: left">Type</th><th style="text-align: left">Mandatory</th><th style="text-align: left">Default</th></tr></thead><tbody>
 <tr><td style="text-align: left"><a id="menuconfig-name"></a>name</td><td style="text-align: left">A unique name for this target.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels#target-names">Name</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 <tr><td style="text-align: left"><a id="menuconfig-config"></a>config</td><td style="text-align: left">Workspace-relative path of the <code>.config</code> file to read and write; an existing file of the root module's workspace.</td><td style="text-align: left">String</td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
+<tr><td style="text-align: left"><a id="menuconfig-env"></a>env</td><td style="text-align: left">Environment variables set for <code>mconf</code> over the library's (<code>env</code>, <code>env_labels</code>), by name: a tree variable for this target, or one <code>mconf</code> itself reads (<code>MENUCONFIG_COLOR</code>, <code>MENUCONFIG_MODE</code>).</td><td style="text-align: left"><a href="https://bazel.build/rules/lib/dict">Dictionary: String -&gt; String</a></td><td style="text-align: left">optional</td><td style="text-align: left"><code>{}</code></td></tr>
 <tr><td style="text-align: left"><a id="menuconfig-kconfig"></a>kconfig</td><td style="text-align: left">The <code>kconfig_library</code> of the tree: its files, release and variables.</td><td style="text-align: left"><a href="https://bazel.build/concepts/labels">Label</a></td><td style="text-align: left">required</td><td style="text-align: left"></td></tr>
 </tbody></table>
 </div>
