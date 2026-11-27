@@ -10,6 +10,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.9")
 bazel_dep(name = "rules_cc_autoconf", version = "0.35.0")
 
+bazel_dep(name = "rules_rust", version = "0.75.0", dev_dependency = True)
 bazel_dep(name = "rules_rust_mdbook", version = "0.75.0", dev_dependency = True)
 bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
 bazel_dep(name = "stardoc", version = "0.8.0", dev_dependency = True)
@@ -43,11 +44,6 @@ register_toolchains(
     "@wasi_sdk//:toolchain",
     dev_dependency = True,
 )
-
-# The WebAssembly module is Rust around the kernel's parser
-# (kconfig/private/parser), built for `wasm32-wasip1` with
-# `--config=wasm32`, and natively for its tests.
-bazel_dep(name = "rules_rust", version = "0.75.0", dev_dependency = True)
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust", dev_dependency = True)
 rust.toolchain(
@@ -169,4 +165,4 @@ crate.from_cargo(
 use_repo(crate, "crates")
 
 kconfig = use_extension("//kconfig:extensions.bzl", "kconfig")
-use_repo(kconfig, "kconfig_parser", "kernel_kconfig_4_19", "kernel_kconfig_6_12")
+use_repo(kconfig, "kernel_kconfig_4_19", "kernel_kconfig_6_12")

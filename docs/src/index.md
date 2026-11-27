@@ -33,7 +33,8 @@ use_repo(kconfig, "my_kconfig")
 The tree is parsed by the Linux kernel's own Kconfig parser, which the
 extension downloads for the host (see [Parser](#parser)). `menuconfig` is
 the kernel's own `mconf` too, built from the same sources with bison, flex
-and ncurses from the registry, launched by the parser's native build.
+and ncurses from the registry, launched by a small C++ program built from
+source.
 
 ## Kconfig versions
 
@@ -357,9 +358,8 @@ root module's: `bazel run @my_kconfig//:menuconfig`. The next build after a
 save is under the new configuration, as the repository reads the file.
 
 `mconf` is a curses program over POSIX, so `menuconfig` is for Linux and
-macOS. On Windows, and on a host the release has no native build of the
-parser for, the target is incompatible: `bazel build //...` skips it, and
-`bazel run` reports why.
+macOS. On Windows the target is incompatible: `bazel build //...` skips it,
+and `bazel run` reports why.
 
 ## Build-time values with `settings_labels`
 
