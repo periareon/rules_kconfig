@@ -169,12 +169,16 @@ configuration (e.g. toolchain-derived values like compiler version).
             doc = "Optional map of CONFIG_* names to lists of string values for generated config_settings.",
             default = {},
         ),
-        "tool": attr.label(
+        "tools": attr.label_keyed_string_dict(
             doc = """\
-The native build of the parser (`kconfig_tool`), used where the WebAssembly
-module cannot be. The `kconfig` module extension provides the release's build
-for the host, or the one `RULES_KCONFIG_TOOL` names.
+The native builds of the parser (`kconfig_tool`), used where the WebAssembly
+module cannot be, each mapped to the `<os>-<cpu>` of the host that runs it
+(`linux-x86_64`), or to `host` for a build of this host, taken over the
+platform's. Only the host's is fetched. The `kconfig` module extension
+provides the release's builds, and as `host` the one `RULES_KCONFIG_TOOL`
+names.
 """,
+            default = {},
         ),
         "wasm_module": attr.label(
             doc = """\
