@@ -181,7 +181,8 @@ use_repo(kconfig, "my_kconfig")
 <p>The tree is parsed by the Linux kernel's own Kconfig parser, which the
 extension downloads for the host (see <a href="index.html#parser">Parser</a>). <code>menuconfig</code> is
 the kernel's own <code>mconf</code> too, built from the same sources with bison, flex
-and ncurses from the registry, launched by the parser's native build.</p>
+and ncurses from the registry, launched by a small C++ program built from
+source.</p>
 <h2 id="kconfig-versions"><a class="header" href="#kconfig-versions">Kconfig versions</a></h2>
 <p>Kconfig has no version of its own: the language is whatever the kernel's
 <code>scripts/kconfig</code> accepts at a release, and that has changed over the years.
@@ -434,9 +435,8 @@ through symlinks.</p>
 root module's: <code>bazel run @my_kconfig//:menuconfig</code>. The next build after a
 save is under the new configuration, as the repository reads the file.</p>
 <p><code>mconf</code> is a curses program over POSIX, so <code>menuconfig</code> is for Linux and
-macOS. On Windows, and on a host the release has no native build of the
-parser for, the target is incompatible: <code>bazel build //...</code> skips it, and
-<code>bazel run</code> reports why.</p>
+macOS. On Windows the target is incompatible: <code>bazel build //...</code> skips it,
+and <code>bazel run</code> reports why.</p>
 <h2 id="build-time-values-with-settings_labels"><a class="header" href="#build-time-values-with-settings_labels">Build-time values with <code>settings_labels</code></a></h2>
 <p>Some Kconfig symbols derive their default from the build environment
 using <code>$(shell,...)</code> macros — for example, a compiler version obtained
@@ -672,12 +672,11 @@ menuconfig(<a href="rules.html#menuconfig-name">name</a>, <a href="rules.html#me
 that serves the release the tree is written for (<code>kconfig_version</code> of its
 <code>kconfig_library</code>), the code the kconfig repository rule reads the tree
 with, so what the TUI accepts and writes is what the build reads. The tree's
-variables (<code>env</code>, <code>env_labels</code> of the library) are set for it. The launcher
-is the parser's native build, <code>kconfig_tool</code>, which a release ships for
-every platform.</p>
+variables (<code>env</code>, <code>env_labels</code> of the library) are set for it by a small
+C++ launcher built from source, with the toolchain <code>mconf</code> needs anyway.</p>
 <p><code>mconf</code> is a curses program over POSIX, so the target is for Linux and
-macOS: on Windows, and on a host the release has no native build of the
-parser for, it is incompatible, which <code>//...</code> skips and <code>bazel run</code> reports.</p>
+macOS: on Windows it is incompatible, which <code>//...</code> skips and <code>bazel run</code>
+reports.</p>
 <p>Run with <code>bazel run</code>. The TUI reads and writes the file <code>config</code> names,
 relative to the root module's workspace, which must exist there: the
 launcher resolves the path on disk, and refuses one that leads outside the

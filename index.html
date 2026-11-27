@@ -180,7 +180,8 @@ use_repo(kconfig, "my_kconfig")
 <p>The tree is parsed by the Linux kernel's own Kconfig parser, which the
 extension downloads for the host (see <a href="#parser">Parser</a>). <code>menuconfig</code> is
 the kernel's own <code>mconf</code> too, built from the same sources with bison, flex
-and ncurses from the registry, launched by the parser's native build.</p>
+and ncurses from the registry, launched by a small C++ program built from
+source.</p>
 <h2 id="kconfig-versions"><a class="header" href="#kconfig-versions">Kconfig versions</a></h2>
 <p>Kconfig has no version of its own: the language is whatever the kernel's
 <code>scripts/kconfig</code> accepts at a release, and that has changed over the years.
@@ -433,9 +434,8 @@ through symlinks.</p>
 root module's: <code>bazel run @my_kconfig//:menuconfig</code>. The next build after a
 save is under the new configuration, as the repository reads the file.</p>
 <p><code>mconf</code> is a curses program over POSIX, so <code>menuconfig</code> is for Linux and
-macOS. On Windows, and on a host the release has no native build of the
-parser for, the target is incompatible: <code>bazel build //...</code> skips it, and
-<code>bazel run</code> reports why.</p>
+macOS. On Windows the target is incompatible: <code>bazel build //...</code> skips it,
+and <code>bazel run</code> reports why.</p>
 <h2 id="build-time-values-with-settings_labels"><a class="header" href="#build-time-values-with-settings_labels">Build-time values with <code>settings_labels</code></a></h2>
 <p>Some Kconfig symbols derive their default from the build environment
 using <code>$(shell,...)</code> macros — for example, a compiler version obtained
