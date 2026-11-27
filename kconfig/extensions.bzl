@@ -2,7 +2,7 @@
 
 load("//kconfig:kconfig_overrides_repository.bzl", "kconfig_overrides_repository")
 load("//kconfig:kconfig_repository.bzl", "kconfig_repository")
-load("//kconfig/private:parser_backend.bzl", "kconfig_parser_repository", "parser_location", "tool_filename")
+load("//kconfig/private:parser_backend.bzl", "kconfig_parser_repository", "parser_builds")
 load("//kconfig/private:versions.bzl", "DEFAULT_KCONFIG_VERSION", "PARSER_VERSIONS", "parser_version")
 load("//kconfig/private/parser/kernel:repository.bzl", "kernel_kconfig_repository", "kernel_kconfig_repository_name")
 
@@ -112,28 +112,26 @@ def _kconfig_impl(module_ctx):
             version = version,
         )
 
-    # The parser's builds of this release the host can use, or the ones
-    # `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name; fetched only when a
-    # repository is generated with them.
+    # The parser's builds of this release, a repository each, the same set on
+    # every host, and the ones `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL`
+    # name; a repository fetches only the one it runs, `bazel fetch --all`
+    # every one.
     wasm_module = None
-    tool = None
-    location = parser_location(module_ctx)
-    if location.wasm != None or location.tool != None:
-        wasm = location.wasm or struct(url = None, integrity = "", path = None)
-        native = location.tool or struct(url = None, integrity = "", path = None)
+    tools = {}
+    for build in parser_builds(module_ctx):
         kconfig_parser_repository(
-            name = "kconfig_parser",
-            tool_integrity = native.integrity,
-            tool_path = native.path,
-            tool_url = native.url,
-            wasm_integrity = wasm.integrity,
-            wasm_path = wasm.path,
-            wasm_url = wasm.url,
+            name = build.name,
+            executable = build.executable,
+            integrity = build.location.integrity,
+            output = build.output,
+            path = build.location.path,
+            url = build.location.url,
         )
-        if location.wasm != None:
-            wasm_module = "@kconfig_parser//:kconfig.wasm"
-        if location.tool != None:
-            tool = "@kconfig_parser//:" + tool_filename(module_ctx)
+        label = "@{}//:{}".format(build.name, build.output)
+        if build.key == None:
+            wasm_module = label
+        else:
+            tools[label] = build.key
 
     for module in module_ctx.modules:
         for tag in getattr(module.tags, "repo", []):
@@ -153,7 +151,7 @@ def _kconfig_impl(module_ctx):
                 kconfig_version = tag.kconfig_version,
                 settings_labels = settings_labels,
                 settings_options = tag.settings_options,
-                tool = tool,
+                tools = tools,
                 write_invisible = tag.write_invisible,
                 wasm_module = wasm_module,
             )
@@ -163,7 +161,7 @@ def _kconfig_impl(module_ctx):
                 name = tag.name,
                 kconfig = tag.kconfig,
                 config = tag.config,
-                tool = tool,
+                tools = tools,
                 wasm_module = wasm_module,
             )
 

@@ -5,8 +5,9 @@ for `wasm32-wasip1` (`//kconfig/private/parser:kconfig_wasm`), and a native
 build of the same program per platform, `kconfig_tool-<os>-<cpu>`, to the
 GitHub release, and fills in the integrities below in the copy of this file
 that goes into the module archive. The `kconfig` extension of that release
-downloads what the host can run, through Bazel's repository cache, the first
-time a repository is generated with it.
+declares a repository for each build with an integrity, on every host the
+same; the one the host runs is downloaded, through Bazel's repository cache,
+the first time a repository is generated with it.
 
 A source checkout carries no integrities and so no builds; the environment
 variables `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name them instead

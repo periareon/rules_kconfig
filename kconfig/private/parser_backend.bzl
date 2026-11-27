@@ -7,10 +7,13 @@ twice: as `kconfig.wasm`, which Bazel 9.3 or newer runs through
 and as a native build per platform, `kconfig_tool-<os>-<cpu>`, which any
 Bazel runs through `repository_ctx.execute`. Both are the same program and
 generate the same repository. The release bakes their URLs and integrities
-into `parser/module.bzl`, the `kconfig` extension downloads what the host can
-use into the `kconfig_parser` repository, and the repository rules take the
-module where Bazel can run it and the native build otherwise, or where
-`RULES_KCONFIG_USE_WASM=0` asks for it.
+into `parser/module.bzl`; the `kconfig` extension declares a repository for
+each build, `kconfig_parser_wasm` and `kconfig_parser_tool_<os>_<cpu>`, the
+same set on every host; and the repository rules fetch the one they run,
+the module where Bazel can run it and the host's native build otherwise, or
+where `RULES_KCONFIG_USE_WASM=0` asks for it. The others stay unfetched,
+except by `bazel fetch --all` or `bazel vendor --all`, which take them all,
+so that an output base or vendor directory can serve another host offline.
 
 The parser cannot read files, list directories, read the environment or run
 commands, so a repository is generated in rounds: this code reads the source
@@ -115,7 +118,7 @@ def host_key(ctx):
     return "{}-{}".format(os, cpu)
 
 def tool_filename(ctx):
-    """The name of the native build in the `kconfig_parser` repository.
+    """The name of a native build of this host in its repository.
 
     Args:
         ctx: A module extension's or repository rule's context.
@@ -124,6 +127,14 @@ def tool_filename(ctx):
         str: `kconfig_tool`, with `.exe` on Windows.
     """
     return "kconfig_tool.exe" if _is_windows(ctx) else "kconfig_tool"
+
+def _release_tool_filename(key):
+    """The name of a release's native build for a platform, as the release names it."""
+    return "kconfig_tool-{}{}".format(key, ".exe" if key.startswith("windows") else "")
+
+# The key under which the repository rules' `tools` carry a build of this
+# host, the one `RULES_KCONFIG_TOOL` names, taken over the platform's.
+HOST_TOOL_KEY = "host"
 
 def _location(ctx, env, integrity_env, url, integrity):
     """Where a build comes from: the environment's override, the release's, or nowhere."""
@@ -140,75 +151,96 @@ def _location(ctx, env, integrity_env, url, integrity):
         return struct(url = url, integrity = integrity, path = None)
     return None
 
-def parser_location(module_ctx):
-    """Where the parser's builds come from, for the `kconfig_parser` repository.
+def parser_builds(module_ctx):
+    """The parser's builds, for the `kconfig` extension to declare a repository of each.
+
+    The set does not depend on the host: the release's module and every
+    native build the release carries, and whatever `RULES_KCONFIG_WASM` and
+    `RULES_KCONFIG_TOOL` name. A build the release has no integrity for, as
+    a source checkout has none, is left out rather than declared to fail.
 
     Args:
         module_ctx: The module extension's context.
 
     Returns:
-        struct: `wasm` and `tool`, each `url` and `integrity`, or `path`, or
-            None where this checkout has no such build for the host and the
-            environment names none.
+        list of struct: Each `name` (of its repository), `output` (the
+            file's name in it), `executable`, `key` (None for the module,
+            `HOST_TOOL_KEY` for the host's own native build, or the
+            `<os>-<cpu>` of a release's), and `location` (`url` and
+            `integrity`, or `path`).
     """
-    key = host_key(module_ctx)
-    return struct(
-        wasm = _location(module_ctx, MODULE_ENV, MODULE_INTEGRITY_ENV, MODULE_URL, MODULE_INTEGRITY),
-        tool = _location(
-            module_ctx,
-            TOOL_ENV,
-            TOOL_INTEGRITY_ENV,
-            TOOL_URLS.get(key),
-            TOOL_INTEGRITIES.get(key, ""),
-        ),
-    )
-
-def _fetch(repository_ctx, env, url, integrity, path, output, executable):
-    """Bring one build into the repository as `output`; the files it made."""
-    if path:
-        source = repository_ctx.path(path)
-        repository_ctx.watch(source)
-        if not source.exists:
-            fail("{} names `{}`, which does not exist".format(env, path))
-        repository_ctx.symlink(source, output)
-    elif url:
-        repository_ctx.download(
-            url = url,
-            output = output,
-            integrity = integrity,
-            executable = executable,
-        )
-    else:
-        return []
-    return [output]
+    builds = []
+    wasm = _location(module_ctx, MODULE_ENV, MODULE_INTEGRITY_ENV, MODULE_URL, MODULE_INTEGRITY)
+    if wasm != None:
+        builds.append(struct(
+            name = "kconfig_parser_wasm",
+            output = "kconfig.wasm",
+            executable = False,
+            key = None,
+            location = wasm,
+        ))
+    host_tool = _location(module_ctx, TOOL_ENV, TOOL_INTEGRITY_ENV, None, "")
+    if host_tool != None:
+        builds.append(struct(
+            name = "kconfig_parser_tool_" + HOST_TOOL_KEY,
+            output = tool_filename(module_ctx),
+            executable = True,
+            key = HOST_TOOL_KEY,
+            location = host_tool,
+        ))
+    for key in sorted(TOOL_URLS):
+        if not TOOL_INTEGRITIES.get(key):
+            continue
+        builds.append(struct(
+            name = "kconfig_parser_tool_" + key.replace("-", "_"),
+            output = _release_tool_filename(key),
+            executable = True,
+            key = key,
+            location = struct(url = TOOL_URLS[key], integrity = TOOL_INTEGRITIES[key], path = None),
+        ))
+    return builds
 
 def _kconfig_parser_repository_impl(repository_ctx):
     attr = repository_ctx.attr
-    files = _fetch(repository_ctx, MODULE_ENV, attr.wasm_url, attr.wasm_integrity, attr.wasm_path, "kconfig.wasm", False)
-    files += _fetch(repository_ctx, TOOL_ENV, attr.tool_url, attr.tool_integrity, attr.tool_path, tool_filename(repository_ctx), True)
-    repository_ctx.file("BUILD.bazel", "exports_files({})\n".format(json.encode(files)))
+    if attr.path:
+        source = repository_ctx.path(attr.path)
+        repository_ctx.watch(source)
+        if not source.exists:
+            fail("{} names `{}`, which does not exist".format(TOOL_ENV if attr.executable else MODULE_ENV, attr.path))
+        repository_ctx.symlink(source, attr.output)
+    else:
+        repository_ctx.download(
+            url = attr.url,
+            output = attr.output,
+            integrity = attr.integrity,
+            executable = attr.executable,
+        )
+    repository_ctx.file("BUILD.bazel", "exports_files({})\n".format(json.encode([attr.output])))
 
 kconfig_parser_repository = repository_rule(
-    doc = "Holds the parser's builds the host can use, the WebAssembly module and the native build, downloaded from a release or taken from local builds.",
+    doc = """\
+Holds one build of the parser, the WebAssembly module or a native build for
+one platform, downloaded from a release or taken from a local build. The
+`kconfig` extension declares one per build; a repository rule fetches only
+the one it runs.
+""",
     implementation = _kconfig_parser_repository_impl,
     attrs = {
-        "tool_integrity": attr.string(
-            doc = "The expected integrity of the native build at `tool_url`; may be empty.",
+        "executable": attr.bool(
+            doc = "Whether the build is a native one, to be executed.",
         ),
-        "tool_path": attr.string(
-            doc = "The absolute path of a native build, used instead of `tool_url`.",
+        "integrity": attr.string(
+            doc = "The expected integrity of the build at `url`; may be empty.",
         ),
-        "tool_url": attr.string(
-            doc = "Where to download the native build from.",
+        "output": attr.string(
+            doc = "The name of the build's file in the repository.",
+            mandatory = True,
         ),
-        "wasm_integrity": attr.string(
-            doc = "The expected integrity of the module at `wasm_url`; may be empty.",
+        "path": attr.string(
+            doc = "The absolute path of a local build, used instead of `url`.",
         ),
-        "wasm_path": attr.string(
-            doc = "The absolute path of a module, used instead of `wasm_url`.",
-        ),
-        "wasm_url": attr.string(
-            doc = "Where to download the module from.",
+        "url": attr.string(
+            doc = "Where to download the build from.",
         ),
     },
 )
@@ -237,13 +269,15 @@ def select_backend(repository_ctx):
     newer with `--experimental_repository_ctx_execute_wasm`) and there is one,
     unless `RULES_KCONFIG_USE_WASM=0` (through `--repo_env`) asks for the
     native build; otherwise the native build, where there is one for the
-    host, and the variable is not read. A release carries both; `RULES_KCONFIG_WASM` and
-    `RULES_KCONFIG_TOOL` name them for a source checkout. Without either the
-    repository cannot be generated.
+    host, and the variable is not read. Only the build chosen is fetched. A
+    release carries both; `RULES_KCONFIG_WASM` and `RULES_KCONFIG_TOOL` name
+    them for a source checkout. Without either the repository cannot be
+    generated.
 
     Args:
         repository_ctx: The repository rule's context. Its rule has the
-            `wasm_module` and `tool` attributes (labels, or None).
+            `wasm_module` attribute (a label, or None) and `tools` (labels
+            to the `<os>-<cpu>` each is built for, or `HOST_TOOL_KEY`).
 
     Returns:
         struct: `name` is `"wasm"` or `"native"`; `module` is the path of the
@@ -253,6 +287,7 @@ def select_backend(repository_ctx):
 
     # The build is an input of the repository: a source checkout names one
     # that is rebuilt in place, and the repository is generated again with it.
+    # Resolving a label fetches its repository, so only the chosen one is.
     def watched(label):
         path = repository_ctx.path(label)
         repository_ctx.watch(path)
@@ -266,11 +301,16 @@ def select_backend(repository_ctx):
             module = watched(repository_ctx.attr.wasm_module),
             tool = None,
         )
-    if repository_ctx.attr.tool:
+    tools = {key: label for label, key in repository_ctx.attr.tools.items()}
+    key = host_key(repository_ctx)
+    tool = tools.get(HOST_TOOL_KEY)
+    if tool == None and key != None:
+        tool = tools.get(key)
+    if tool != None:
         return struct(
             name = "native",
             module = None,
-            tool = watched(repository_ctx.attr.tool),
+            tool = watched(tool),
         )
     if not can_run_module:
         module_reason = "Bazel does not expose `execute_wasm` (Bazel 9.3 or newer with `--experimental_repository_ctx_execute_wasm`)"
@@ -278,10 +318,14 @@ def select_backend(repository_ctx):
         module_reason = "{}={} asks for the native build".format(USE_WASM_ENV, _getenv(repository_ctx, USE_WASM_ENV))
     else:
         module_reason = "this checkout of rules_kconfig carries no module (build one with `bazel build --config=wasm32 @rules_kconfig//kconfig/private/parser:kconfig_wasm` and name it with {})".format(MODULE_ENV)
+    if key == None:
+        host = "{} {}, which no release has a native build for".format(repository_ctx.os.name, repository_ctx.os.arch)
+    else:
+        host = "`{}` (a release has them for {})".format(key, ", ".join(sorted(TOOL_URLS)))
     fail(
         "{} cannot be generated: neither build of the parser can be used. {}; ".format(repository_ctx.name, module_reason) +
-        "and there is no native build for this host (a release has them for {}; a source checkout needs ".format(", ".join(sorted(TOOL_URLS))) +
-        "`bazel build @rules_kconfig//kconfig/private/parser:kconfig_tool`, named with {}).".format(TOOL_ENV),
+        "and there is no native build for this host, {}; a source checkout needs ".format(host) +
+        "`bazel build @rules_kconfig//kconfig/private/parser:kconfig_tool`, named with {}.".format(TOOL_ENV),
     )
 
 def new_request(repository_ctx, command, kconfig, srctree, env = {}):

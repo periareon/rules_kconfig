@@ -76,9 +76,15 @@ kconfig.repo(
 The parser is the Linux kernel's `scripts/kconfig`, of every release in
 [Kconfig versions](#kconfig-versions), with this repository's generators,
 in one program that a release of `rules_kconfig` ships in two builds. The
-`kconfig` extension downloads the one the host can run, through Bazel's
-repository cache, the first time a repository is generated. Both builds
-generate the same repository, byte for byte.
+`kconfig` extension declares a repository for each, `kconfig_parser_wasm`
+and `kconfig_parser_tool_<os>_<cpu>`, the same set on every host, and a
+generated repository downloads only the one it runs, through Bazel's
+repository cache, the first time. Both builds generate the same repository,
+byte for byte.
+
+`bazel fetch --all` and `bazel vendor --all` fetch every build, so an output
+base, repository cache or vendor directory filled on one host serves another
+offline.
 
 ### WebAssembly
 
